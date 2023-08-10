@@ -1,2 +1,2 @@
-# finance
-Financial data research
+# Finance
+- Financial data research
