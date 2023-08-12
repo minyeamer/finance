@@ -160,7 +160,6 @@ cython_debug/
 #.idea/
 
 # input data, saved log, checkpoints
-data/
 debug/
 input/
 saved/
@@ -181,4 +180,3 @@ __MACOSX/
 temp/
 debug*.ipynb
 debug*.sh
-
