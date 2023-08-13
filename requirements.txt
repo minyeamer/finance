@@ -1,7 +1,7 @@
 ### Python 3.9 ###
 
 # Base
-gcp-scraper==0.0.6
+gcp-scraper==1.0.0
 # tqdm>=4.64.0
 
 # Scraping
