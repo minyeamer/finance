@@ -48,17 +48,17 @@ class FinanceAsyncSpider(AsyncSpider):
     message = "example tqdm message"
 
     @AsyncSpider.asyncio_session
-    async def crawl(self, query: List[Any], start=1, pageSize=1, apiRedirect=False, **kwargs) -> List[Dict]:
+    async def crawl(self, query: List[Any], startPage=1, pageSize=1, apiRedirect=False, **kwargs) -> List[Dict]:
         query = unique(*query) if is_2darray(query) or apiRedirect else list(map(cast_tuple, unique(*query)))
-        context = dict(query=query, start=start, pageSize=pageSize, **kwargs)
+        context = dict(query=query, startPage=startPage, pageSize=pageSize, **kwargs)
         return await (self.redirect(**context) if apiRedirect else self.gather(**context))
 
     @AsyncSpider.asyncio_filter
-    async def gather(self, query: List[Tuple[Any]], start=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
+    async def gather(self, query: List[Tuple[Any]], startPage=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
         message = message if message else self.message
         return chain_exists(await self.tqdm.gather(
             *[self.fetch(*args, page=page, **kwargs)
-                for args in query for page in range(start,start+pageSize)], desc=message))
+                for args in query for page in range(startPage, startPage+pageSize)], desc=message))
 
     @AsyncSpider.gcloud_authorized
     async def redirect(self, query: List[Tuple[Any]], message=str(), **kwargs) -> List[Dict]:

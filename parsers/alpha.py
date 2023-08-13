@@ -1,5 +1,6 @@
 from gscraper.base import Parser, log_results
-from gscraper.cast import cast_datetime
+from gscraper.cast import cast_str, cast_timestamp
+from gscraper.date import get_timestamp
 from gscraper.map import filter_map
 
 from typing import Dict, List
@@ -19,6 +20,7 @@ class AlphaDetailParser(Parser):
 
     def parse(self, response: str, code=str(), filter=list(), **kwargs) -> Dict:
         data = json.loads(response)[code]
+        data["id"] = cast_str(data["id"])
         data["code"] = code
         return filter_map(data, filter=filter)
 
@@ -26,10 +28,11 @@ class AlphaDetailParser(Parser):
 class AlphaPriceParser(Parser):
     operation = "alphaPrice"
 
-    def parse(self, response: str, id=str(), code=str(), trunc=2, filter=list(), **kwargs) -> List[Dict]:
+    def parse(self, response: str, id=str(), code=str(), start=None, end=None,
+                trunc=2, filter=list(), **kwargs) -> List[Dict]:
         data = json.loads(response)["data"]
         results = [self.map_price(price, id, code, trunc, filter=filter, **kwargs)
-                    for price in data if len(price) == len(PRICE_FIELDS)]
+                    for price in data if self.validate_data(price, start, end)]
         log_results(results, id=id, code=code)
         return results
 
@@ -38,5 +41,13 @@ class AlphaPriceParser(Parser):
         price = dict(id=id, code=code,
             **{key:(round(float(value), trunc) if idx in PRICE_INDEX and not is_kr else int(value))
                 for idx,(key,value) in enumerate(zip(PRICE_FIELDS,data))})
-        price["date"]: cast_datetime(price[0], tzinfo=KST, timestamp=True)
+        datetime = cast_timestamp(price["date"], tzinfo=KST, droptz=False)
+        price["date"], price["datetime"] = datetime.date(), datetime
         return filter_map(price, filter=filter)
+
+    def validate_data(self, data: List[int], start=None, end=None, **kwargs) -> bool:
+        if not data: return False
+        valid = (len(data) == len(PRICE_FIELDS))
+        if start: valid = valid & (data[0] >= get_timestamp(start, ms=False))
+        if end: valid = valid & (data[0] <= get_timestamp(end, ms=False))
+        return valid

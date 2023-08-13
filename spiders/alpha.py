@@ -2,9 +2,10 @@ from gscraper.base import get_headers, log_messages, log_client
 
 from base.spiders import FinanceAsyncSpider
 from base.urls import API_URL, GET_URL
+from data.models import KR_STOCK_PRICE_SCHEMA
 from parsers.alpha import *
 
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 from aiohttp import ClientSession
 
 ALPHA = "alpha"
@@ -36,7 +37,7 @@ class AlphaPriceSpider(FinanceAsyncSpider, AlphaPriceParser):
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
     async def fetch(self, id: str, code: str, freq: Optional[Union[str,int]]="day", limit=600,
-                    session: ClientSession=None, **kwargs) -> Dict:
+                    start=None, end=None, trunc=2, session: ClientSession=None, **kwargs) -> Dict:
         api_url = API_URL(ALPHA, "prices", id)
         freq = (f"minute-{freq}" if isinstance(freq, int) else freq)
         params = {"freq":freq, "limit":min(limit,MAX_LIMIT), "include_current_candle":"false"}
@@ -45,4 +46,7 @@ class AlphaPriceSpider(FinanceAsyncSpider, AlphaPriceParser):
         self.logger.debug(log_messages(params=params, headers=headers, json=self.logJson))
         async with session.get(api_url, params=params, headers=headers) as response:
             self.logger.info(await log_client(response, url=api_url, id=id, code=code))
-            return self.parse(await response.text(), id, code, **kwargs)
+            return self.parse(await response.text(), id, code, start, end, trunc, **kwargs)
+
+    def get_gbq_schema(self, freq="day", **kwargs) -> List[Dict[str, str]]:
+        return KR_STOCK_PRICE_SCHEMA("time" if isinstance(freq, int) or "minute" in str(freq) else "date")
