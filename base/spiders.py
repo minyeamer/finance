@@ -1,9 +1,10 @@
 from __future__ import annotations
 from gscraper.base import Spider, AsyncSpider, REDIRECT_MSG
 from gscraper.base import get_headers, log_messages, log_response, log_client, log_results
-from gscraper.map import unique, filter_exists, chain_exists
+from gscraper.cast import cast_tuple
+from gscraper.map import unique, chain_exists, is_2darray
 
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Tuple
 from abc import ABCMeta, abstractmethod
 from aiohttp import ClientSession
 from requests import Session
@@ -16,14 +17,15 @@ class FinanceSpider(Spider):
     message = "example tqdm message"
 
     @Spider.requests_session
-    def crawl(self, symbols: List[str], start=1, pageSize=1, **kwargs) -> List[Dict]:
-        return self.gather(symbols=unique(*symbols), start=start, pageSize=pageSize, **kwargs)
+    def crawl(self, query: List[Any], start=1, pageSize=1, **kwargs) -> List[Dict]:
+        query = unique(*query) if is_2darray(query) else list(map(cast_tuple, unique(*query)))
+        return self.gather(query=query, start=start, pageSize=pageSize, **kwargs)
 
     @Spider.response_filter
-    def gather(self, symbols: List[str], start=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
+    def gather(self, query: List[Tuple[Any]], start=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
         message = message if message else self.message
-        iterable = [(symbol,page) for symbol in symbols for page in range(start,start+pageSize)]
-        return filter_exists(
+        iterable = [(*args, page) for args in query for page in range(start,start+pageSize)]
+        return chain_exists(
             [self.fetch(symbol, page=page, **kwargs) for symbol, page in self.tqdm(iterable, desc=message)])
 
     @abstractmethod
@@ -46,22 +48,23 @@ class FinanceAsyncSpider(AsyncSpider):
     message = "example tqdm message"
 
     @AsyncSpider.asyncio_session
-    async def crawl(self, symbols: List[str], start=1, pageSize=1, apiRedirect=False, **kwargs) -> List[Dict]:
-        context = dict(symbols=unique(*symbols), start=start, pageSize=pageSize, **kwargs)
+    async def crawl(self, query: List[Any], start=1, pageSize=1, apiRedirect=False, **kwargs) -> List[Dict]:
+        query = unique(*query) if is_2darray(query) or apiRedirect else list(map(cast_tuple, unique(*query)))
+        context = dict(query=query, start=start, pageSize=pageSize, **kwargs)
         return await (self.redirect(**context) if apiRedirect else self.gather(**context))
 
     @AsyncSpider.asyncio_filter
-    async def gather(self, symbols: List[str], start=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
+    async def gather(self, query: List[Tuple[Any]], start=1, pageSize=1, message=str(), **kwargs) -> List[Dict]:
         message = message if message else self.message
-        return filter_exists(await self.tqdm.gather(
-            *[self.fetch(symbol, page=page, **kwargs)
-                for symbol in symbols for page in range(start,start+pageSize)], desc=message))
+        return chain_exists(await self.tqdm.gather(
+            *[self.fetch(*args, page=page, **kwargs)
+                for args in query for page in range(start,start+pageSize)], desc=message))
 
     @AsyncSpider.gcloud_authorized
-    async def redirect(self, symbols: List[str], message=str(), **kwargs) -> List[Dict]:
+    async def redirect(self, query: List[Tuple[Any]], message=str(), **kwargs) -> List[Dict]:
         message = message if message else REDIRECT_MSG(self.operation)
         return chain_exists(await self.tqdm.gather(
-            *[self.fetch_redirect(symbol=symbol, **kwargs) for symbol in self.redirect_range(symbols)], desc=message))
+            *[self.fetch_redirect(query=args, **kwargs) for args in self.redirect_range(query)], desc=message))
 
     @abstractmethod
     @AsyncSpider.asyncio_errors
