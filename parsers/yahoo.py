@@ -1,5 +1,6 @@
 from gscraper.base import Parser, log_results
-from gscraper.date import now, get_date
+from gscraper.cast import cast_timestamp
+from gscraper.date import now
 from gscraper.map import hier_get, filter_map, filter_data
 
 from typing import Dict
@@ -12,6 +13,28 @@ EST = "US/Eastern"
 PRICE_RENAME = {"Date":"date", "Datetime":"datetime",
                 "Open":"open", "High":"high", "Low":"low", "Close":"close", "Volume":"volume"}
 PRICE_COLUMNS = ["open", "high", "low", "close"]
+
+
+class YahooTickerParser(Parser):
+    operation = "yahooTicker"
+
+    def parse(self, response: Dict, symbol=str(), prepost=False, filter=list(), **kwargs) -> Dict:
+        info = dict(response, **{"symbol": symbol, "updateDate":now().date(), "updateTime":now()})
+        for key, value in info.items():
+            if ("Date" in key or "FiscalYear" in key) and isinstance(value, int):
+                info[key] = cast_timestamp(value, tsUnit="s")
+        info["name"] = info.get("longName")
+        info["description"] = info.get("longBusinessSummary")
+        for column in ["high","low"]:
+            info[column] = info.get(("day" if prepost else "regularMarketDay")+column.capitalize())
+        for column in ["previousClose","volume"]:
+            info[column] = info.get(column if prepost else "regularMarket"+column.capitalize())
+        info["high52"], info["low52"] = info.get("fiftyTwoWeekHigh"), info.get("fiftyTwoWeekLow")
+        info["ma50"], info["ma200"] = info.get("fiftyDayAverage"), info.get("twoHundredDayAverage")
+        info["per"], info["eps"] = info.get("trailingPE"), info.get("trailingEps")
+        info["dividendDate"], info["dividendValue"] = info.get("lastDividendDate"), info.get("lastDividendValue")
+        info["roa"], info["roe"] = info.get("returnOnAssets"), info.get("returnOnEquity")
+        return filter_map(info, filter=filter)
 
 
 class YahooQueryParser(Parser):

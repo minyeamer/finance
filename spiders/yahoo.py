@@ -1,5 +1,4 @@
 from gscraper.base import AsyncSpider, get_headers, log_messages, log_client
-from gscraper.cast import cast_tuple
 from gscraper.date import now, get_date
 from gscraper.map import unique
 
@@ -16,14 +15,29 @@ import yfinance
 
 YAHOO = "yahoo"
 
+fmt = lambda symbol: str(symbol).replace('.','-')
 
-class YahooQuerySpider(FinanceAsyncSpider, YahooQueryParser):
-    operation = "yahooQuery"
+
+class YahooTickerSpider(FinanceAsyncSpider, YahooTickerParser):
+    operation = "yahooTicker"
     message = "Collecting stock information from yahoo finance"
 
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
+    async def fetch(self, symbol: str, **kwargs) -> Dict:
+        symbol = fmt(symbol)
+        response = yfinance.Ticker(fmt(symbol))
+        return self.parse(response.info, symbol, **kwargs)
+
+
+class YahooQuerySpider(FinanceAsyncSpider, YahooQueryParser):
+    operation = "yahooQuery"
+    message = "Collecting stock names from yahoo finance"
+
+    @FinanceAsyncSpider.asyncio_errors
+    @FinanceAsyncSpider.asyncio_limit
     async def fetch(self, symbol: str, session: ClientSession=None, **kwargs) -> Dict:
+        symbol = fmt(symbol)
         params = get_params(symbols=symbol, fields=','.join(QUERY_FIELDS))
         api_url = API_URL(YAHOO, "query", symbol)+'?'+params
         headers = get_headers(api_url, referer=GET_URL(YAHOO, "main", symbol), origin=True, cookies=get_cookies())
@@ -40,6 +54,7 @@ class YahooSummarySpider(FinanceAsyncSpider, YahooSummaryParser):
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
     async def fetch(self, symbol: str, session: ClientSession=None, **kwargs) -> Dict:
+        symbol = fmt(symbol)
         params = get_params(modules="assetProfile,secFilings")
         api_url = API_URL(YAHOO, "summary", symbol)+'?'+params
         headers = get_headers(api_url, referer=GET_URL(YAHOO, "main", symbol), origin=True, cookies=get_cookies())
@@ -61,7 +76,7 @@ class YahooPriceSpider(AsyncSpider, YahooPriceParser):
     async def crawl(self, query: List[str], start: dt.date=None, end: dt.date=None,
                     freq="1d", **kwargs) -> pd.DataFrame:
         start, end = self.set_date(start, end, freq)
-        return await self.gather(unique(*query), start, end, freq, **kwargs)
+        return await self.gather(list(map(fmt, unique(*query))), start, end, freq, **kwargs)
 
     @AsyncSpider.asyncio_filter
     async def gather(self, query: List[str], start: dt.date=None, end: dt.date=None,
@@ -95,5 +110,5 @@ class YahooPriceSpider(AsyncSpider, YahooPriceParser):
         return [(x, (y-dt.timedelta(days=1)))
                 for x, y in zip(starts, starts[1:]+[end+dt.timedelta(days=1)])]
 
-    def get_gbq_schema(self, freq="day", **kwargs) -> List[Dict[str, str]]:
-        return US_STOCK_PRICE_SCHEMA("time" if isinstance(freq, int) or "minute" in str(freq) else "date")
+    def get_gbq_schema(self, freq="1d", **kwargs) -> List[Dict[str, str]]:
+        return US_STOCK_PRICE_SCHEMA("time" if DATE_LIMIT.get(freq) else "date")
