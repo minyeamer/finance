@@ -1,6 +1,6 @@
 from gscraper.base import Parser, log_results
 from gscraper.cast import cast_str, cast_timestamp
-from gscraper.date import get_timestamp
+from gscraper.date import now, get_timestamp
 from gscraper.map import filter_map
 
 from typing import Dict, List
@@ -22,6 +22,7 @@ class AlphaDetailParser(Parser):
         data = json.loads(response)[code]
         data["id"] = cast_str(data["id"])
         data["code"] = code
+        data["updateDate"], data["upadteTime"] = now().date(), now()
         return filter_map(data, filter=filter)
 
 
@@ -41,13 +42,13 @@ class AlphaPriceParser(Parser):
         price = dict(id=id, code=code,
             **{key:(round(float(value), trunc) if idx in PRICE_INDEX and not is_kr else int(value))
                 for idx,(key,value) in enumerate(zip(PRICE_FIELDS,data))})
-        datetime = cast_timestamp(price["date"], tzinfo=KST, droptz=False)
+        datetime = cast_timestamp(price["date"], tzinfo=KST, tsUnit="ms")
         price["date"], price["datetime"] = datetime.date(), datetime
         return filter_map(price, filter=filter)
 
-    def validate_data(self, data: List[int], start=None, end=None, **kwargs) -> bool:
+    def validate_data(self, data: List[int], start=None, end=None, time=True, **kwargs) -> bool:
         if not data: return False
         valid = (len(data) == len(PRICE_FIELDS))
-        if start: valid = valid & (data[0] >= get_timestamp(start, ms=False))
-        if end: valid = valid & (data[0] <= get_timestamp(end, ms=False))
+        if start: valid = valid & (data[0] >= get_timestamp(start, time=time, tsUnit="ms"))
+        if end: valid = valid & (data[0] <= get_timestamp(end, time=time, tsUnit="ms"))
         return valid

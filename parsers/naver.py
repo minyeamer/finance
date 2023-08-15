@@ -28,7 +28,7 @@ class NaverReportParser(Parser):
 
     def map_company(self, code: str, name: str, sector: str, industry: str,
                     bps: str, per: str, sper: str, pbr: str, **kwargs) -> Dict:
-        info = {"code":code, "stockType":"stock", "updateDate":now(tzinfo=KST).date(), "updateTime":now(tzinfo=KST)}
+        info = {"code":code, "stockType":"stock", "updateDate":now().date(), "updateTime":now()}
         info["name"] = name
         info["sector"] = drop_colon(sector)
         info["industry"] = drop_colon(industry)
@@ -43,7 +43,7 @@ class NaverReportParser(Parser):
         return self.map_etf(data, code)
 
     def map_etf(self, data: Dict, code=str(), **kwargs) -> Dict:
-        info = {"code":code, "stockType":"etf", "updateDate":now(tzinfo=KST).date(), "updateTime":now(tzinfo=KST)}
+        info = {"code":code, "stockType":"etf", "updateDate":now().date(), "updateTime":now()}
         info["name"] = data.get("CMP_KOR")
         info["url"] = data.get("URL")
         info["en_name"] = data.get("CMP_ENG")
