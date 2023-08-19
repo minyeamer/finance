@@ -72,10 +72,10 @@ class YahooPriceSpider(AsyncSpider, YahooPriceParser):
     returnType = "dataframe"
     message = "Collecting yahoo stock prices"
 
-    @AsyncSpider.asyncio_session
+    @AsyncSpider.asyncio_task
     async def crawl(self, query: List[str], startDate=None, endDate=None, interval="1d",
                     prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
-        start, end = self.set_date(start, end, interval)
+        startDate, endDate = self.set_date(startDate, endDate, interval)
         return await self.gather(list(map(fmt, unique(*query))), startDate, endDate,
                                 interval, prepost, trunc, tzinfo, **kwargs)
 
