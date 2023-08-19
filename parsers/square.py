@@ -7,7 +7,7 @@ from typing import Dict, List
 import json
 import re
 
-ALPHA = "alpha"
+SQUARE = "square"
 KST = "Asia/Seoul"
 
 KR_CODE_PATTERN = "\d{6}"
@@ -15,8 +15,8 @@ PRICE_FIELDS = ["date", "open", "high", "low", "close", "volume"]
 PRICE_INDEX = [1,2,3,4]
 
 
-class AlphaDetailParser(Parser):
-    operation = "alphaDetail"
+class SquareDetailParser(Parser):
+    operation = "squareDetail"
 
     def parse(self, response: str, code=str(), filter=list(), **kwargs) -> Dict:
         data = json.loads(response)[code]
@@ -26,14 +26,14 @@ class AlphaDetailParser(Parser):
         return filter_map(data, filter=filter)
 
 
-class AlphaPriceParser(Parser):
-    operation = "alphaPrice"
+class SquarePriceParser(Parser):
+    operation = "squarePrice"
 
-    def parse(self, response: str, id=str(), code=str(), start=None, end=None,
+    def parse(self, response: str, id=str(), code=str(), startDate=None, endDate=None,
                 trunc=2, filter=list(), **kwargs) -> List[Dict]:
         data = json.loads(response)["data"]
         results = [self.map_price(price, id, code, trunc, filter=filter, **kwargs)
-                    for price in data if self.validate_data(price, start, end)]
+                    for price in data if self.validate_data(price, startDate, endDate)]
         log_results(results, id=id, code=code)
         return results
 
@@ -46,9 +46,9 @@ class AlphaPriceParser(Parser):
         price["date"], price["datetime"] = datetime.date(), datetime
         return filter_map(price, filter=filter)
 
-    def validate_data(self, data: List[int], start=None, end=None, time=True, **kwargs) -> bool:
+    def validate_data(self, data: List[int], startDate=None, endDate=None, time=True, **kwargs) -> bool:
         if not data: return False
         valid = (len(data) == len(PRICE_FIELDS))
-        if start: valid = valid & (data[0] >= get_timestamp(start, time=time, tsUnit="ms"))
-        if end: valid = valid & (data[0] <= get_timestamp(end, time=time, tsUnit="ms"))
+        if startDate: valid = valid & (data[0] >= get_timestamp(startDate, time=time, tsUnit="ms"))
+        if endDate: valid = valid & (data[0] <= get_timestamp(endDate, time=time, tsUnit="ms"))
         return valid

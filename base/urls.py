@@ -3,13 +3,13 @@ import re
 
 
 API_URL = lambda host, uri, query=str(), **params: {
-    "alpha": {
-        "details": f"https://api.alphasquare.co.kr/data/v2/stock/details?code={query}", # code
-        "prices": f"https://api.alphasquare.co.kr/data/v3/prices/candles/{query}", # id
-    }.get(uri, str()),
     "naver": {
         "company": f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={query}", # code
         "etf": f"https://navercomp.wisereport.co.kr/v2/ETF/index.aspx?cmp_cd={query}", # code
+    }.get(uri, str()),
+    "square": {
+        "details": f"https://api.alphasquare.co.kr/data/v2/stock/details?code={query}", # code
+        "prices": f"https://api.alphasquare.co.kr/data/v3/prices/candles/{query}", # id
     }.get(uri, str()),
     "yahoo": {
         "query": "https://query2.finance.yahoo.com/v7/finance/quote",
@@ -19,12 +19,12 @@ API_URL = lambda host, uri, query=str(), **params: {
 
 
 GET_URL = lambda host, uri, query=str(), **params: {
-    "alpha": {
-        "main": "https://alphasquare.co.kr",
-    }.get(uri, str()),
     "naver": {
         "main": f"https://finance.naver.com/item/main.naver?code={query}", # symbol
         "info": f"https://finance.naver.com/item/coinfo.naver?code={query}", # code
+    }.get(uri, str()),
+    "square": {
+        "main": "https://alphasquare.co.kr",
     }.get(uri, str()),
     "yahoo": {
         "main": f"https://finance.yahoo.com/quote/{query}/profile", # symbol
