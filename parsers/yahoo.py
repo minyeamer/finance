@@ -5,6 +5,7 @@ from gscraper.map import hier_get, filter_map, filter_data
 
 from typing import Dict
 from pytz import timezone
+import datetime as dt
 import json
 import pandas as pd
 
@@ -80,9 +81,8 @@ class YahooPriceParser(Parser):
         return filter_data(data, filter=filter, return_type="dataframe")
 
     def parse_date(self, data: pd.DataFrame, tzinfo="default", **kwargs) -> pd.DataFrame:
-        if "date" in data:
-            data["date"] = data["date"].apply(lambda x: x.date())
-        elif (tzinfo != "default") and ("datetime" in data):
+        data["date"] = data[("date" if "date" in data else "datetime")].apply(lambda x: x.date())
+        if (tzinfo != "default") and ("datetime" in data):
             tzinfo = (timezone(tzinfo) if isinstance(tzinfo, str) else tzinfo) if tzinfo else None
             data["datetime"] = data["datetime"].apply(lambda x: x.replace(tzinfo=tzinfo))
         return data
@@ -94,10 +94,19 @@ class YahooPriceParser(Parser):
         return data
 
     def calc_change(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
-        if ("date" not in data) or ("close" not in data): return data
-        data["previousClose"] = data["close"].shift(1)
-        data["change"] = (data["close"]-data["previousClose"])/data["previousClose"]
-        if "open" in data: data["gap"] = (data["open"]-data["previousClose"])/data["previousClose"]
-        if "high" in data: data["highPct"] = (data["high"]-data["previousClose"])/data["previousClose"]
-        if "low" in data: data["lowPct"] = (data["low"]-data["previousClose"])/data["previousClose"]
+        data = self.set_previous_close(data).copy()
+        for column, price in zip(["gap","highPct","lowPct","change"],PRICE_COLUMNS):
+            if (column == "gap") and ("datetime" in data): continue
+            if price in data: data[column] = (data[price]-data["previousClose"])/data["previousClose"]
+        return data
+
+    def set_previous_close(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        if "date" not in data: data["preivousClose"] = None
+        elif "datetime" in data:
+            data["date"] = data["datetime"].apply(lambda x: x.date())
+            daily = (data[data["volume"]>0].groupby("date").agg({"close":"last"}).
+                    reset_index().rename(columns={"close":"previousClose"}))
+            daily["date"] = daily["date"].shift(-1)
+            data = data.merge(daily[daily["date"].notna()], how="left", on="date")
+        else: data["previousClose"] = data["close"].shift(1)
         return data
