@@ -4,6 +4,7 @@ from gscraper.date import now
 from gscraper.map import hier_get, filter_map, filter_data
 
 from typing import Dict
+from pytz import timezone
 import json
 import pandas as pd
 
@@ -65,14 +66,38 @@ class YahooSummaryParser(Parser):
 class YahooPriceParser(Parser):
     operation = "yahooPrice"
 
-    def parse(self, response: pd.DataFrame, symbol=str(), trunc=2, filter=list(), **kwargs) -> pd.DataFrame:
+    def parse(self, response: pd.DataFrame, symbol=str(), trunc=2, tzinfo="default",
+                filter=list(), **kwargs) -> pd.DataFrame:
         if response.empty:
             log_results(list(), symbol=symbol)
             return pd.DataFrame()
         data = response.reset_index().rename(columns=PRICE_RENAME)
         data["symbol"] = symbol
+        data = self.parse_date(data, tzinfo, **kwargs)
+        data = self.trunc_price(data, trunc, **kwargs)
+        data = self.calc_change(data, **kwargs)
+        log_results(data, symbol=symbol)
+        return filter_data(data, filter=filter, return_type="dataframe")
+
+    def parse_date(self, data: pd.DataFrame, tzinfo="default", **kwargs) -> pd.DataFrame:
+        if "date" in data:
+            data["date"] = data["date"].apply(lambda x: x.date())
+        elif (tzinfo != "default") and ("datetime" in data):
+            tzinfo = (timezone(tzinfo) if isinstance(tzinfo, str) else tzinfo) if tzinfo else None
+            data["datetime"] = data["datetime"].apply(lambda x: x.replace(tzinfo=tzinfo))
+        return data
+
+    def trunc_price(self, data: pd.DataFrame, trunc=2, **kwargs) -> pd.DataFrame:
         if isinstance(trunc, int):
             for column in PRICE_COLUMNS:
                 if column in data: data[column] = data[column].apply(lambda x: round(x, trunc))
-        log_results(data, symbol=symbol)
-        return filter_data(data, filter=filter, return_type="dataframe")
+        return data
+
+    def calc_change(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        if ("date" not in data) or ("close" not in data): return data
+        data["previousClose"] = data["close"].shift(1)
+        data["change"] = (data["close"]-data["previousClose"])/data["previousClose"]
+        if "open" in data: data["gap"] = (data["open"]-data["previousClose"])/data["previousClose"]
+        if "high" in data: data["highPct"] = (data["high"]-data["previousClose"])/data["previousClose"]
+        if "low" in data: data["lowPct"] = (data["low"]-data["previousClose"])/data["previousClose"]
+        return data

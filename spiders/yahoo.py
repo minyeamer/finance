@@ -73,42 +73,44 @@ class YahooPriceSpider(AsyncSpider, YahooPriceParser):
     message = "Collecting yahoo stock prices"
 
     @AsyncSpider.asyncio_session
-    async def crawl(self, query: List[str], start: dt.date=None, end: dt.date=None,
-                    freq="1d", **kwargs) -> pd.DataFrame:
-        start, end = self.set_date(start, end, freq)
-        return await self.gather(list(map(fmt, unique(*query))), start, end, freq, **kwargs)
+    async def crawl(self, query: List[str], startDate=None, endDate=None, interval="1d",
+                    prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
+        start, end = self.set_date(start, end, interval)
+        return await self.gather(list(map(fmt, unique(*query))), startDate, endDate,
+                                interval, prepost, trunc, tzinfo, **kwargs)
 
     @AsyncSpider.asyncio_filter
-    async def gather(self, query: List[str], start: dt.date=None, end: dt.date=None,
-                    freq="1d", message=str(), **kwargs) -> pd.DataFrame:
+    async def gather(self, query: List[str], startDate: dt.date=None, endDate: dt.date=None,
+                    interval="1d", prepost=False, trunc=2, tzinfo="default", message=str(), **kwargs) -> pd.DataFrame:
         message = message if message else self.message
         return pd.concat(await self.tqdm.gather(
-            *[self.fetch(symbol, __start, __to, freq, **kwargs)
-                for symbol in query for __start, __to in self.set_period(start, end, freq)], desc=message))
+            *[self.fetch(symbol, start, end, interval, prepost, trunc, tzinfo, **kwargs)
+                for symbol in query for start, end in self.set_period(startDate, endDate, interval)], desc=message))
 
     @AsyncSpider.asyncio_errors
     @AsyncSpider.asyncio_limit
-    async def fetch(self, symbol: str, start: dt.date=None, end: dt.date=None,
-                    freq="1d", prepost=False, trunc=2, **kwargs) -> pd.DataFrame:
-        response = yfinance.download(symbol, start, end, interval=freq, prepost=prepost, progress=False)
-        return self.parse(response, symbol, trunc, **kwargs)
+    async def fetch(self, symbol: str, startDate: dt.date=None, endDate: dt.date=None,
+                    interval="1d", prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
+        response = yfinance.download(symbol, startDate, endDate, interval=interval, prepost=prepost, progress=False)
+        return self.parse(response, symbol, trunc, tzinfo, **kwargs)
 
-    def set_date(self, start=None, end=None, freq="1d", **kwargs) -> Tuple[dt.date,dt.date]:
-        start, end, today = get_date(start, default=None), get_date(end, default=None), now().date()
-        limit = DATE_LIMIT[freq]
-        if not limit: return start, end
-        is_end, end = bool(end), (end if end else today)
-        if not start: return (end-dt.timedelta(limit)), end
-        days = ((end if end else today)-start).days
-        if days <= limit: return start, end
-        elif is_end: return (end-dt.timedelta(limit)), end
-        else: return start, (start+dt.timedelta(limit))
+    def set_date(self, startDate=None, endDate=None, interval="1d", **kwargs) -> Tuple[dt.date,dt.date]:
+        startDate, endDate, today = get_date(startDate, default=None), get_date(endDate, default=None), now().date()
+        limit = DATE_LIMIT[interval]
+        if not limit: return startDate, endDate
+        is_end, endDate = bool(endDate), (endDate if endDate else today)
+        if not startDate: return (endDate-dt.timedelta(limit-1)), endDate
+        days = ((endDate if endDate else today)-startDate).days
+        if days < limit: return startDate, endDate
+        elif is_end: return (endDate-dt.timedelta(limit-1)), endDate
+        else: return startDate, (startDate+dt.timedelta(limit-1))
 
-    def set_period(self, start=None, end=None, freq="1d", **kwargs) -> List[Tuple[dt.date,dt.date]]:
-        if freq != "1m": return [(start, end)]
-        starts = list(map(lambda x: x.date(), pd.date_range(start, end, freq="7D")))
+    def set_period(self, startDate: dt.date=None, endDate: dt.date=None,
+                    interval="1d", **kwargs) -> List[Tuple[dt.date,dt.date]]:
+        if interval != "1m": return [(startDate, endDate)]
+        dates = list(map(lambda x: x.date(), pd.date_range(startDate, endDate, interval="7D")))
         return [(x, (y-dt.timedelta(days=1)))
-                for x, y in zip(starts, starts[1:]+[end+dt.timedelta(days=1)])]
+                for x, y in zip(dates, dates[1:]+[endDate+dt.timedelta(days=1)])]
 
-    def get_gbq_schema(self, freq="1d", **kwargs) -> List[Dict[str, str]]:
-        return US_STOCK_PRICE_SCHEMA("time" if DATE_LIMIT.get(freq) else "date")
+    def get_gbq_schema(self, interval="1d", **kwargs) -> List[Dict[str, str]]:
+        return US_STOCK_PRICE_SCHEMA("time" if DATE_LIMIT.get(interval) else "date")
