@@ -1,15 +1,21 @@
-from gscraper.base import Parser
-from gscraper.cast import cast_float, cast_int
-from gscraper.date import now
-from gscraper.map import fill_array, filter_map, re_get
+from gscraper.base import Parser, log_results
+from gscraper.cast import cast_float, cast_int, cast_date
+from gscraper.date import now, get_date
+from gscraper.map import fill_array, filter_map, re_get, filter_data
 from gscraper.parse import select_text
 
-from typing import Dict
+from typing import Dict, List
 from bs4 import BeautifulSoup
+from io import StringIO
 import json
+import pandas as pd
 
 NAVER = "naver"
 KST = "Asia/Seoul"
+
+INDEX_TYPES = {"KOSPI":"코스피", "KOSDAQ":"코스탁", "FUTURES":"선물"}
+INSTITUTIONS = ["금융투자", "보험", "투신(사모)", "은행", "기타금융기관", "연기금등"]
+INVESTORS = ["개인", "외국인", "기관계"]+INSTITUTIONS+["기타법인"]
 
 drop_colon = lambda s: s.split(" : ")[-1] if isinstance(s, str) and " : " in s else s
 
@@ -52,3 +58,27 @@ class NaverReportParser(Parser):
         info["etfType"] = data.get("ETF_TYP_SVC_NM")
         info["totalPay"] = cast_float(data.get("TOT_PAY"), None)
         return info
+
+
+class NaverInvestorParser(Parser):
+    operation = "naverInvestor"
+
+    def parse(self, response: str, indexType=str(), startDate=None,
+                filter=list(), **kwargs) -> List[Dict]:
+        raw = StringIO(response)
+        data = pd.read_html(raw)[0]
+        data.columns = ["날짜"]+INVESTORS
+        results = self.map_investor(data, indexType, startDate, filter=filter, **kwargs)
+        log_results(results, indexType=indexType)
+        return results
+
+    def map_investor(self, data: pd.DataFrame, indexType=str(), startDate=None,
+                    filter=list(), **kwargs) -> List[Dict]:
+        data = data[data["날짜"].notna()].copy()
+        data["날짜"] = data["날짜"].apply(cast_date)
+        data["대상"] = INDEX_TYPES.get(indexType)
+        for column in INVESTORS:
+            data[column] = data[column].apply(cast_int)
+        startDate = get_date(startDate, default=None)
+        if startDate: data = data[data["날짜"]>=startDate]
+        return filter_data(data, filter=filter, return_type="records")

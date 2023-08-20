@@ -22,8 +22,9 @@ API_URL = lambda host, uri, query=str(), **params: {
 
 GET_URL = lambda host, uri, query=str(), **params: {
     "naver": {
-        "main": f"https://finance.naver.com/item/main.naver?code={query}", # symbol
+        "main": f"https://finance.naver.com/item/main.naver?code={query}", # code
         "info": f"https://finance.naver.com/item/coinfo.naver?code={query}", # code
+        "investor": "https://finance.naver.com/sise/investorDealTrendDay.nhn",
     }.get(uri, str()),
     "square": {
         "main": "https://alphasquare.co.kr",
