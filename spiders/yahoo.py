@@ -1,6 +1,6 @@
 from gscraper.base import AsyncSpider, get_headers, log_messages, log_client
 from gscraper.date import now, get_date
-from gscraper.map import unique
+from gscraper.map import unique, exist
 
 from base.spiders import FinanceAsyncSpider
 from base.urls import API_URL, GET_URL
@@ -20,7 +20,7 @@ fmt = lambda symbol: str(symbol).replace('.','-')
 
 class YahooTickerSpider(FinanceAsyncSpider, YahooTickerParser):
     operation = "yahooTicker"
-    message = "Collecting stock information from yahoo finance"
+    message = "Collecting stock information from Yahoo Finance"
 
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
@@ -32,7 +32,7 @@ class YahooTickerSpider(FinanceAsyncSpider, YahooTickerParser):
 
 class YahooQuerySpider(FinanceAsyncSpider, YahooQueryParser):
     operation = "yahooQuery"
-    message = "Collecting stock names from yahoo finance"
+    message = "Collecting stock names from Yahoo Finance"
 
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
@@ -49,7 +49,7 @@ class YahooQuerySpider(FinanceAsyncSpider, YahooQueryParser):
 
 class YahooSummarySpider(FinanceAsyncSpider, YahooSummaryParser):
     operation = "yahooSummary"
-    message = "Collecting company profiles from yahoo finance"
+    message = "Collecting company profiles from Yahoo Finance"
 
     @FinanceAsyncSpider.asyncio_errors
     @FinanceAsyncSpider.asyncio_limit
@@ -70,22 +70,23 @@ DATE_LIMIT = {"1m":30, "2m":60, "5m":60, "15m":60, "30m":60, "60m":730, "90m":60
 class YahooPriceSpider(AsyncSpider, YahooPriceParser):
     operation = "yahooPrice"
     returnType = "dataframe"
-    message = "Collecting yahoo stock prices"
+    message = "Collecting stock prices from Yahoo Finance"
 
     @AsyncSpider.asyncio_task
     async def crawl(self, query: List[str], startDate=None, endDate=None, interval="1d",
                     prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
         startDate, endDate = self.set_date(startDate, endDate, interval)
-        return await self.gather(list(map(fmt, unique(*query))), startDate, endDate,
-                                interval, prepost, trunc, tzinfo, **kwargs)
+        return await self.gather(
+            list(map(fmt, unique(*query))), startDate, endDate, interval, prepost, trunc, tzinfo, **kwargs)
 
     @AsyncSpider.asyncio_filter
     async def gather(self, query: List[str], startDate: dt.date=None, endDate: dt.date=None,
                     interval="1d", prepost=False, trunc=2, tzinfo="default", message=str(), **kwargs) -> pd.DataFrame:
         message = message if message else self.message
-        return pd.concat(await self.tqdm.gather(
+        results = await self.tqdm.gather(
             *[self.fetch(symbol, start, end, interval, prepost, trunc, tzinfo, **kwargs)
-                for symbol in query for start, end in self.set_period(startDate, endDate, interval)], desc=message))
+                for symbol in query for start, end in self.set_period(startDate, endDate, interval)], desc=message)
+        return pd.concat([result for result in results if exist(result)])
 
     @AsyncSpider.asyncio_errors
     @AsyncSpider.asyncio_limit
