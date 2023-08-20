@@ -1,8 +1,10 @@
 import re
 
 
-
 API_URL = lambda host, uri, query=str(), **params: {
+    "alpha": {
+        "query": "https://www.alphavantage.co/query",
+    }.get(uri, str()),
     "naver": {
         "company": f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={query}", # code
         "etf": f"https://navercomp.wisereport.co.kr/v2/ETF/index.aspx?cmp_cd={query}", # code
