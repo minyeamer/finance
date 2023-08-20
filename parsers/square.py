@@ -10,7 +10,6 @@ import re
 SQUARE = "square"
 KST = "Asia/Seoul"
 
-KR_CODE_PATTERN = "\d{6}"
 PRICE_FIELDS = ["date", "open", "high", "low", "close", "volume"]
 PRICE_INDEX = [1,2,3,4]
 
@@ -29,21 +28,23 @@ class SquareDetailParser(Parser):
 class SquarePriceParser(Parser):
     operation = "squarePrice"
 
-    def parse(self, response: str, id=str(), code=str(), startDate=None, endDate=None,
+    def parse(self, response: str, id=str(), code=str(), freq="day", startDate=None, endDate=None,
                 trunc=2, filter=list(), **kwargs) -> List[Dict]:
         data = json.loads(response)["data"]
-        results = [self.map_price(price, id, code, trunc, filter=filter, **kwargs)
+        results = [self.map_price(price, id, code, freq, trunc, filter=filter, **kwargs)
                     for price in data if self.validate_data(price, startDate, endDate)]
         log_results(results, id=id, code=code)
         return results
 
-    def map_price(self, data: List[int], id=str(), code=str(), trunc=2, filter=list(), **kwargs) -> Dict:
-        is_kr = re.match(KR_CODE_PATTERN, code)
+    def map_price(self, data: List[int], id=str(), code=str(), freq="day", trunc=2, filter=list(), **kwargs) -> Dict:
+        not_kr = re.match("[^\d]", str(code))
         price = dict(id=id, code=code,
-            **{key:(round(float(value), trunc) if idx in PRICE_INDEX and not is_kr else int(value))
+            **{key:(round(float(value), trunc) if idx in PRICE_INDEX and not_kr else int(value))
                 for idx,(key,value) in enumerate(zip(PRICE_FIELDS,data))})
         datetime = cast_timestamp(price["date"], tzinfo=KST, tsUnit="ms")
-        price["date"], price["datetime"] = datetime.date(), datetime
+        if isinstance(freq, int) or "minute" in str(freq):
+            price["datetime"] = datetime
+        price["date"] = datetime.date()
         return filter_map(price, filter=filter)
 
     def validate_data(self, data: List[int], startDate=None, endDate=None, time=True, **kwargs) -> bool:
