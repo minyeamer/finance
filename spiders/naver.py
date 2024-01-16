@@ -1,84 +1,110 @@
-from gscraper.base import AsyncSpider, REDIRECT_MSG
-from gscraper.base import get_headers, log_messages, log_client
-from gscraper.date import get_date, get_busdate
-from gscraper.map import chain_exists
+from spiders import FinanceKrAsyncSpider, Flow, get_headers
+from spiders import GET, API, NAVER, URL
 
-from base.spiders import FinanceAsyncSpider
-from base.urls import API_URL, GET_URL
-from parsers.naver import *
+from data.naver import NAVER_STOCK_INFO_INFO
+from data.naver import NAVER_INVESTOR_INFO, INDEX_CATEGORY, INVESTOR_COLUMNS
 
-from typing import Dict, Iterable, List, Tuple
-from aiohttp import ClientSession
+from gscraper.base.types import Context, Keyword, DateFormat, Records
+from gscraper.utils.map import re_get, select_text, fill_array
+
+from typing import Dict, Literal, Optional, Sequence
+from abc import ABCMeta
 from math import ceil
-import datetime as dt
 import numpy as np
 
-NAVER = "naver"
+from bs4 import BeautifulSoup
+from io import StringIO
+import json
+import pandas as pd
 
-INDEX_TYPES = {"KOSPI":"01", "KOSDAQ":"02", "FUTURES":"03"}
+
+class NaverAsyncSpider(FinanceKrAsyncSpider):
+    __metaclass__ = ABCMeta
+    operation = "naverSpider"
+    host = NAVER
+    where = "Naver Finance"
+    maxLimit = 3
 
 
-class NaverReportSpider(FinanceAsyncSpider, NaverReportParser):
+###################################################################
+########################### Naver Stock ###########################
+###################################################################
+
+class NaverStockInfoSpider(NaverAsyncSpider):
     operation = "naverReport"
-    message = "Collecting naver finance reports"
+    which = "company info"
+    iterateArgs = ["code", "stockType"]
+    iterateUnit = 1
+    responseType = "dict"
+    returnType = "records"
+    info = NAVER_STOCK_INFO_INFO()
+    flow = Flow()
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, code: str, stockType: str, session: ClientSession=None, **kwargs) -> Dict:
-        api_url = API_URL(NAVER, stockType, code)
-        headers = get_headers(host=api_url, referer=GET_URL(NAVER, "main", code))
-        headers["Upgrade-Insecure-Requests"] = '1'
-        self.logger.debug(log_messages(headers=headers, json=self.logJson))
-        async with session.get(api_url, headers=headers) as response:
-            self.logger.info(await log_client(response, url=api_url, code=code, stockType=stockType))
-            return self.parse(await response.text(), code, stockType, **kwargs)
+    @NaverAsyncSpider.init_session
+    async def crawl(self, code: Keyword, stockType: Sequence[Literal["company","etf"]], **context) -> Records:
+        return await self.gather(*self.validate_args(code, stockType, how="first"), **context)
+
+    @NaverAsyncSpider.catch_exception
+    @NaverAsyncSpider.limit_request
+    async def fetch(self, code: Keyword, stockType: Literal["company","etf"], **context) -> Records:
+        url = URL(API, NAVER, stockType, code)
+        headers = get_headers(host=url, referer=URL(GET, NAVER, "main", code), secure=True)
+        response = await self.request_text(GET, **self.local_request(locals()))
+        return self.parse(**self.local_response(locals()))
+
+    @NaverAsyncSpider.validate_response
+    def parse(self, response: str, code: str, stockType: Literal["company","etf"], **context) -> Dict:
+        if stockType == "company":
+            source = BeautifulSoup(response, "html.parser")
+            values = select_text(source, "td.cmp-table-cell > dl > dt.line-left")
+            data = dict(zip(["name","sector","industry","bps","per","sectorPer","pbr","dividentYield"], fill_array(values, 8)))
+        else: data = json.loads(re_get("var summary_data = (\{[^}]*\});", response))
+        return self.map(data, code=code, stockType=stockType, **context)
+
+    def get_flow(self, stockType: Literal["company","etf"], **context) -> Flow:
+        return super().get_flow(Flow(stockType))
 
 
-class NaverInvestorSpider(AsyncSpider, NaverInvestorParser):
+###################################################################
+########################## Naver Investor #########################
+###################################################################
+
+class NaverInvestorSpider(NaverAsyncSpider):
     operation = "naverInvestor"
-    message = "Collecting investor deal trands from Naver Finance"
+    which = "investor deal trands"
+    iterateArgs = []
+    iterateUnit = 1
+    pagination = True
+    pageLimit = 10
+    responseType = "dataframe"
+    returnType = "dataframe"
+    info = NAVER_INVESTOR_INFO()
+    flow = Flow("investor")
 
-    @AsyncSpider.asyncio_session
-    async def crawl(self, startDate=None, endDate=None, indexType="KOSPI", pages=None,
-                    apiRedirect=False, **kwargs) -> List[Dict]:
-        bizdate, pages = self.set_query(startDate, endDate, pages)
-        context = dict(bizdate=bizdate, indexType=indexType, pages=pages, startDate=startDate, **kwargs)
-        results = await (self.redirect(**context) if apiRedirect else self.gather(**context))
-        return results
+    @NaverAsyncSpider.init_session
+    async def crawl(self, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
+                    indexType: Literal["KOSPI","KOSDAQ","FUTURES"]="KOSPI", size=None, pageStart=1, **context) -> pd.DataFrame:
+        context = self.validate_context(startDate, endDate, size, indexType=indexType, pageStart=pageStart, **context)
+        return await self.gather(**context)
 
-    @AsyncSpider.asyncio_filter
-    async def gather(self, bizdate: str, indexType="KOSPI", pages=1, message=str(), **kwargs) -> List[Dict]:
-        pages = range(1,pages+1) if isinstance(pages, int) else pages
-        message = message if message else self.message
-        return chain_exists(await self.tqdm.gather(
-            *[self.fetch(bizdate, indexType, page=page, **kwargs) for page in pages], desc=message))
+    def validate_context(self, startDate=None, endDate=None, size=None, **context) -> Context:
+        byDate = "date" if (startDate is not None) or (endDate is not None) else None
+        startDate, endDate = self.get_date_pair(startDate, endDate, if_null=(None,0), busdate=True)
+        dateFilter = dict(context, byDate=byDate, fromDate=startDate, toDate=endDate) if byDate else dict()
+        if not isinstance(size, (Sequence,int)):
+            size = (ceil(np.busday_count(startDate, endDate)/self.pageLimit) if startDate else 1) * self.pageLimit
+        return dict(context, bizdate=endDate.strftime("%Y%m%d"), size=size, pageSize=self.pageLimit, **dateFilter)
 
-    @AsyncSpider.gcloud_authorized
-    async def redirect(self, bizdate: str, pages=1, message=str(), **kwargs) -> List[Dict]:
-        pages = range(1,pages+1) if isinstance(pages, int) else pages
-        message = message if message else REDIRECT_MSG(self.operation)
-        return chain_exists(await self.tqdm.gather(
-            *[self.fetch_redirect(endDate=bizdate, pages=args, **kwargs)
-                for args in self.redirect_range(pages)], desc=message))
+    @NaverAsyncSpider.catch_exception
+    @NaverAsyncSpider.limit_request
+    async def fetch(self, bizdate: str, indexType="KOSPI", page=1, **context) -> pd.DataFrame:
+        url = URL(GET, NAVER, "investor")
+        params = dict(bizdate=bizdate, sosok=INDEX_CATEGORY.get(indexType,"01"), page=page)
+        headers = get_headers(host=url, referer=url, secure=True)
+        response = await self.request_text(GET, **self.local_request(locals()))
+        return self.parse(**self.local_response(locals()))
 
-    @AsyncSpider.asyncio_errors
-    @AsyncSpider.asyncio_limit
-    async def fetch(self, bizdate: str, indexType="KOSPI", page=1, startDate=None,
-                    session: ClientSession=None, **kwargs) -> List[Dict]:
-        get_url = GET_URL(NAVER, "investor")
-        params = {"bizdate":bizdate, "sosok":INDEX_TYPES.get(indexType,"01"), "page":page}
-        headers = get_headers(host=get_url, referer=get_url)
-        headers["Upgrade-Insecure-Requests"] = '1'
-        self.logger.debug(log_messages(params=params, headers=headers, json=self.logJson))
-        async with session.get(get_url, params=params, headers=headers) as response:
-            self.logger.info(await log_client(response,
-                url=get_url, bizdate=bizdate, indexType=indexType, page=page))
-            return self.parse(await response.text(), indexType, startDate, **kwargs)
-
-    def set_query(self, startDate=None, endDate=None, pages=None, pageUnit=10, **kwargs) -> Tuple[str,Iterable[int]]:
-        bizdate = get_busdate(endDate, default=0)
-        if not pages:
-            startDate = get_busdate(startDate, default=None)
-            pages = ceil(np.busday_count(startDate, bizdate)/pageUnit) if startDate else 1
-        bizdate = bizdate.strftime("%Y%m%d") if isinstance(bizdate, dt.date) else str(bizdate)
-        return bizdate, (pages if isinstance(pages, Iterable) else range(1,pages+1))
+    def parse(self, response: str, indexType=str(), **context) -> pd.DataFrame:
+        data = pd.read_html(StringIO(response))[0]
+        data.columns = ["date"]+INVESTOR_COLUMNS
+        return self.map(data[data['date'].notna()], indexType=indexType, **context)

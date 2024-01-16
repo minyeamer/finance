@@ -1,4 +1,8 @@
 from base.abstract import *
 from base.spider import *
 
-__version__ = "0.0.1"
+from data.naver import *
+
+from spiders.naver import *
+
+__version__ = "0.0.2"
