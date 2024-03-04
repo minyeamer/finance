@@ -1,117 +1,185 @@
-from gscraper.base import AsyncSpider, get_headers, log_messages, log_client
-from gscraper.date import now, get_date
-from gscraper.map import unique, exist
+from spiders import FinanceSpider, FinanceAsyncSpider, Flow, EST, get_headers
+from spiders import GET, API, YAHOO, URL, Symbol
 
-from base.spiders import FinanceAsyncSpider
-from base.urls import API_URL, GET_URL
-from data.models import US_STOCK_PRICE_SCHEMA
-from data.yahoo import *
-from parsers.yahoo import *
+from data.yahoo import YAHOO_TICKER_INFO, YAHOO_TICKER_SECTION
+from data.yahoo import YAHOO_QUERY_INFO, YAHOO_QUERY_FIELDS, YAHOO_SUMMARY_INFO
+from data.yahoo import get_yahoo_params, get_yahoo_cookies
 
-from typing import Dict, List, Tuple
-from aiohttp import ClientSession
+from data import US_STOCK_PRICE_SCHEMA
+from data.yahoo import YAHOO_PRICE_INFO, YAHOO_DATE_LIMIT
+
+from gscraper.base.types import IndexLabel, Keyword, DateFormat, Timezone, Data
+from gscraper.utils.date import get_timezone
+from gscraper.utils.map import inter
+from base.spider import set_change
+
+from typing import Dict, Optional, Tuple
+from abc import ABCMeta
 import datetime as dt
+import pandas as pd
 import yfinance
 
-YAHOO = "yahoo"
 
-fmt = lambda symbol: str(symbol).replace('.','-')
+def fmt(symbol: str) -> str:
+    return symbol.replace('.','-') if isinstance(symbol, str) else str()
 
 
-class YahooTickerSpider(FinanceAsyncSpider, YahooTickerParser):
+def get_yahoo_headers(url: str, symbol=str(), referer=str(), **kwargs) -> Dict[str,str]:
+    referer = referer if referer else URL(GET, YAHOO, "main", fmt(symbol))
+    return get_headers(url, referer=referer, origin=True, cookies=get_yahoo_cookies(), **kwargs)
+
+
+class YahooSpider(FinanceSpider):
+    __metaclass__ = ABCMeta
+    operation = "yahooSpider"
+    host = YAHOO
+    where = "Yahoo Finance"
+    tzinfo = EST
+
+
+class YahooAsyncSpider(FinanceAsyncSpider):
+    __metaclass__ = ABCMeta
+    operation = "yahooSpider"
+    host = YAHOO
+    where = "Yahoo Finance"
+    tzinfo = EST
+
+
+###################################################################
+######################## Yahoo Information ########################
+###################################################################
+
+class YahooTickerSpider(YahooSpider):
     operation = "yahooTicker"
-    message = "Collecting stock information from Yahoo Finance"
+    which = "stock information"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+    responseType = "dict"
+    returnType = "records"
+    info = YAHOO_TICKER_INFO()
+    flow = Flow()
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, symbol: str, **kwargs) -> Dict:
-        symbol = fmt(symbol)
+    @YahooSpider.init_task
+    def crawl(self, symbol: Symbol, section: Keyword=["summary"], prepost=False, trunc: Optional[int]=2, **context) -> Data:
+        self.flow = Flow(*self.map_section(section, prepost))
+        args, context = self.validate_params(symbol=symbol, trunc=trunc, **context)
+        return self.gather(*args, **context)
+
+    @YahooSpider.catch_exception
+    @YahooSpider.limit_request
+    def fetch(self, symbol: str, **context) -> Dict:
         response = yfinance.Ticker(fmt(symbol))
-        return self.parse(response.info, symbol, **kwargs)
+        return self.parse(response.info, symbol=symbol, **context)
+
+    def map_section(self, section: Keyword=["summary"], prepost=False) -> Keyword:
+        section = inter(YAHOO_TICKER_SECTION, section) if section else YAHOO_TICKER_SECTION
+        if section[0] == "summary":
+            section.insert(1, ("prepost" if prepost else "regular"))
+        return section
 
 
-class YahooQuerySpider(FinanceAsyncSpider, YahooQueryParser):
+###################################################################
+########################### Yahoo Query ###########################
+###################################################################
+
+class YahooQuerySpider(YahooAsyncSpider):
     operation = "yahooQuery"
-    message = "Collecting stock names from Yahoo Finance"
+    which = "stock names"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+    responseType = "dict"
+    returnType = "records"
+    root = ["quoteResponse","result",0]
+    info = YAHOO_QUERY_INFO()
+    flow = Flow("info")
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, symbol: str, session: ClientSession=None, **kwargs) -> Dict:
-        symbol = fmt(symbol)
-        params = get_params(symbols=symbol, fields=','.join(QUERY_FIELDS))
-        api_url = API_URL(YAHOO, "query", symbol)+'?'+params
-        headers = get_headers(api_url, referer=GET_URL(YAHOO, "main", symbol), origin=True, cookies=get_cookies())
-        self.logger.debug(log_messages(headers=headers, json=self.logJson))
-        async with session.get(api_url, headers=headers) as response:
-            self.logger.info(await log_client(response, url=api_url, symbol=symbol))
-            return self.parse(await response.text(), symbol, **kwargs)
+    @YahooAsyncSpider.catch_exception
+    @YahooAsyncSpider.limit_request
+    async def fetch(self, symbol: str, **context) -> Dict:
+        url = URL(API, YAHOO, "query", fmt(symbol))
+        params = get_yahoo_params(symbols=fmt(symbol), fields=','.join(YAHOO_QUERY_FIELDS))
+        headers = get_yahoo_headers(url, symbol)
+        response = await self.request_json(GET, encode=True, **self.local_request(locals()))
+        return self.parse(**self.local_response(locals()))
 
 
-class YahooSummarySpider(FinanceAsyncSpider, YahooSummaryParser):
+class YahooSummarySpider(YahooAsyncSpider):
     operation = "yahooSummary"
-    message = "Collecting company profiles from Yahoo Finance"
+    which = "company profiles"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+    responseType = "dict"
+    returnType = "records"
+    root = ["quoteSummary","result",0]
+    info = YAHOO_SUMMARY_INFO()
+    flow = Flow("summary")
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, symbol: str, session: ClientSession=None, **kwargs) -> Dict:
-        symbol = fmt(symbol)
-        params = get_params(modules="assetProfile,secFilings")
-        api_url = API_URL(YAHOO, "summary", symbol)+'?'+params
-        headers = get_headers(api_url, referer=GET_URL(YAHOO, "main", symbol), origin=True, cookies=get_cookies())
-        self.logger.debug(log_messages(headers=headers, json=self.logJson))
-        async with session.get(api_url, headers=headers) as response:
-            self.logger.info(await log_client(response, url=api_url, symbol=symbol))
-            return self.parse(await response.text(), symbol, **kwargs)
+    @YahooAsyncSpider.catch_exception
+    @YahooAsyncSpider.limit_request
+    async def fetch(self, symbol: str, **context) -> Dict:
+        url = URL(API, YAHOO, "summary", fmt(symbol))
+        params = get_yahoo_params(modules="assetProfile,secFilings")
+        headers = get_yahoo_headers(url, symbol)
+        response = await self.request_json(GET, encode=True, **self.local_request(locals()))
+        return self.parse(**self.local_response(locals()))
 
 
-DATE_LIMIT = {"1m":30, "2m":60, "5m":60, "15m":60, "30m":60, "60m":730, "90m":60,
-                "1h":730, "1d":None, "5d":None, "1wk":None, "1mo":None, "3mo":None}
+###################################################################
+########################### Yahoo Price ###########################
+###################################################################
 
-class YahooPriceSpider(AsyncSpider, YahooPriceParser):
+class YahooPriceSpider(YahooSpider):
     operation = "yahooPrice"
+    which = "stock prices"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+    responseType = "dataframe"
     returnType = "dataframe"
-    message = "Collecting stock prices from Yahoo Finance"
+    info = YAHOO_PRICE_INFO()
+    flow = Flow("price")
 
-    @AsyncSpider.asyncio_task
-    async def crawl(self, query: List[str], startDate=None, endDate=None, interval="1d",
-                    prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
-        startDate, endDate = self.set_date(startDate, endDate, interval)
-        return await self.gather(
-            list(map(fmt, unique(*query))), startDate, endDate, interval, prepost, trunc, tzinfo, **kwargs)
+    @YahooSpider.init_task
+    def crawl(self, symbol: Symbol, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
+                freq="1d", prepost=False, trunc: Optional[int]=2, **context) -> Data:
+        startDate, endDate, interval = self.set_date(startDate, endDate, freq)
+        args, context = self.validate_params(locals())
+        return self.gather(*args, **context)
 
-    @AsyncSpider.asyncio_filter
-    async def gather(self, query: List[str], startDate: dt.date=None, endDate: dt.date=None,
-                    interval="1d", prepost=False, trunc=2, tzinfo="default", message=str(), **kwargs) -> pd.DataFrame:
-        message = message if message else self.message
-        results = await self.tqdm.gather(
-            *[self.fetch(symbol, start, end, interval, prepost, trunc, tzinfo, **kwargs)
-                for symbol in query for start, end in self.set_period(startDate, endDate, interval)], desc=message)
-        return pd.concat([result for result in results if exist(result)])
-
-    @AsyncSpider.asyncio_errors
-    @AsyncSpider.asyncio_limit
-    async def fetch(self, symbol: str, startDate: dt.date=None, endDate: dt.date=None,
-                    interval="1d", prepost=False, trunc=2, tzinfo="default", **kwargs) -> pd.DataFrame:
-        response = yfinance.download(symbol, startDate, endDate, interval=interval, prepost=prepost, progress=False)
-        return self.parse(response, symbol, trunc, tzinfo, **kwargs)
-
-    def set_date(self, startDate=None, endDate=None, interval="1d", **kwargs) -> Tuple[dt.date,dt.date]:
-        startDate, endDate, today = get_date(startDate, default=None), get_date(endDate, default=None), now().date()
-        limit = DATE_LIMIT[interval]
-        if not limit: return startDate, endDate
-        is_end, endDate = bool(endDate), (endDate if endDate else today)
-        if not startDate: return (endDate-dt.timedelta(limit-1)), endDate
-        days = ((endDate if endDate else today)-startDate).days
-        if days < limit: return startDate, endDate
-        elif is_end: return (endDate-dt.timedelta(limit-1)), endDate
+    def set_date(self, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
+                freq="1d") -> Tuple[dt.date,dt.date,str]:
+        startDate, endDate = self.get_date_pair(startDate, endDate)
+        today, limit = self.today(), YAHOO_DATE_LIMIT[freq]
+        interval = "7D" if freq == "1m" else str()
+        if not limit: return startDate, endDate, interval
+        hasEnd, endDate = bool(endDate), (endDate if endDate else today)
+        if not startDate: return (endDate-dt.timedelta(limit-1)), endDate, interval
+        elif (today-startDate).days < limit: return startDate, endDate, interval
+        elif hasEnd: return (endDate-dt.timedelta(limit-1)), endDate, interval
         else: return startDate, (startDate+dt.timedelta(limit-1))
 
-    def set_period(self, startDate: dt.date=None, endDate: dt.date=None,
-                    interval="1d", **kwargs) -> List[Tuple[dt.date,dt.date]]:
-        if interval != "1m": return [(startDate, endDate)]
-        dates = list(map(lambda x: x.date(), pd.date_range(startDate, endDate, interval="7D")))
-        return [(x, (y-dt.timedelta(days=1)))
-                for x, y in zip(dates, dates[1:]+[endDate+dt.timedelta(days=1)])]
+    @YahooSpider.catch_exception
+    @YahooSpider.limit_request
+    def fetch(self, symbol: str, startDate: Optional[dt.date]=None, endDate: Optional[dt.date]=None,
+                freq="1d", prepost=False, **context) -> pd.DataFrame:
+        response = yfinance.download(symbol, startDate, endDate, interval=freq, prepost=prepost, progress=False)
+        return self.parse(response, symbol=symbol, **context)
 
-    def get_gbq_schema(self, interval="1d", **kwargs) -> List[Dict[str, str]]:
-        return US_STOCK_PRICE_SCHEMA("time" if DATE_LIMIT.get(interval) else "date")
+    @YahooSpider.validate_response
+    def parse(self, response: pd.DataFrame, tzinfo: Optional[Timezone]=None, trunc=2, **context) -> pd.DataFrame:
+        data = response.reset_index()
+        data.columns = [column.lower() for column in data.columns]
+        data = self.map_date(data, tzinfo)
+        data = set_change(data, (trunc+2 if isinstance(trunc, int) else 4))
+        return self.map(data, tzinfo=tzinfo, trunc=trunc, **context)
+
+    def map_date(self, data: pd.DataFrame, tzinfo: Optional[Timezone]=None) -> pd.DataFrame:
+        data["date"] = data[("date" if "date" in data else "datetime")].apply(lambda x: x.date())
+        if "datetime" in data:
+            tzinfo = get_timezone(tzinfo)
+            if tzinfo: data["datetime"] = data["datetime"].apply(lambda x: x.astimezone(tzinfo))
+            else: data["datetime"] = data["datetime"].apply(lambda x: x.replace(tzinfo=None))
+        return data
+
+    def get_upload_columns(self, interval="1d", name=str(), **context) -> IndexLabel:
+        dateType = "time" if YAHOO_DATE_LIMIT.get(interval) else "date"
+        return US_STOCK_PRICE_SCHEMA(dateType).get("name")
