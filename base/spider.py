@@ -86,7 +86,7 @@ class FinanceSpider(Spider):
 
     @Spider.init_session
     def crawl(self, symbol: Keyword, **context) -> Data:
-        args, context = self.validate_params(symbol, **context)
+        args, context = self.validate_params(symbol=symbol, **context)
         return self.gather(*args, **context)
 
 
@@ -98,7 +98,7 @@ class FinanceKrSpider(Spider):
 
     @Spider.init_session
     def crawl(self, code: Keyword, **context) -> Data:
-        args, context = self.validate_params(code, **context)
+        args, context = self.validate_params(code=code, **context)
         return self.gather(*args, **context)
 
 
@@ -110,7 +110,7 @@ class FinanceAsyncSpider(AsyncSpider):
 
     @AsyncSpider.init_session
     async def crawl(self, symbol: Keyword, **context) -> Data:
-        args, context = self.validate_params(symbol, **context)
+        args, context = self.validate_params(symbol=symbol, **context)
         return await self.gather(*args, **context)
 
 
@@ -122,5 +122,5 @@ class FinanceKrAsyncSpider(AsyncSpider):
 
     @AsyncSpider.init_session
     async def crawl(self, code: Keyword, **context) -> Data:
-        args, context = self.validate_params(code, **context)
+        args, context = self.validate_params(code=code, **context)
         return await self.gather(*args, **context)
