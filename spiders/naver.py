@@ -1,10 +1,10 @@
-from spiders import FinanceKrAsyncSpider, Flow, get_headers
-from spiders import GET, API, NAVER, URL
+from spiders import FinanceKrAsyncSpider, Flow, KST, get_headers
+from spiders import GET, API, NAVER, URL, Code
 
 from data.naver import NAVER_STOCK_INFO_INFO
 from data.naver import NAVER_INVESTOR_INFO, INDEX_CATEGORY, INVESTOR_COLUMNS
 
-from gscraper.base.types import Context, Keyword, DateFormat, Records
+from gscraper.base.types import Context, DateFormat, Records, Data
 from gscraper.utils.map import re_get, select_text, fill_array
 
 from typing import Dict, Literal, Optional, Sequence
@@ -24,6 +24,7 @@ class NaverAsyncSpider(FinanceKrAsyncSpider):
     host = NAVER
     where = "Naver Finance"
     maxLimit = 3
+    tzinfo = KST
 
 
 ###################################################################
@@ -41,12 +42,12 @@ class NaverStockInfoSpider(NaverAsyncSpider):
     flow = Flow()
 
     @NaverAsyncSpider.init_session
-    async def crawl(self, code: Keyword, stockType: Sequence[Literal["company","etf"]], **context) -> Records:
+    async def crawl(self, code: Code, stockType: Sequence[Literal["company","etf"]], **context) -> Data:
         return await self.gather(*self.validate_args(code, stockType, how="first"), **context)
 
     @NaverAsyncSpider.catch_exception
     @NaverAsyncSpider.limit_request
-    async def fetch(self, code: Keyword, stockType: Literal["company","etf"], **context) -> Records:
+    async def fetch(self, code: str, stockType: Literal["company","etf"], **context) -> Records:
         url = URL(API, NAVER, stockType, code)
         headers = get_headers(host=url, referer=URL(GET, NAVER, "main", code), secure=True)
         response = await self.request_text(GET, **self.local_request(locals()))
@@ -83,7 +84,7 @@ class NaverInvestorSpider(NaverAsyncSpider):
 
     @NaverAsyncSpider.init_session
     async def crawl(self, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
-                    indexType: Literal["KOSPI","KOSDAQ","FUTURES"]="KOSPI", size=None, pageStart=1, **context) -> pd.DataFrame:
+                    indexType: Literal["KOSPI","KOSDAQ","FUTURES"]="KOSPI", size=None, pageStart=1, **context) -> Data:
         context = self.validate_context(startDate, endDate, size, indexType=indexType, pageStart=pageStart, **context)
         return await self.gather(**context)
 
@@ -104,6 +105,7 @@ class NaverInvestorSpider(NaverAsyncSpider):
         response = await self.request_text(GET, **self.local_request(locals()))
         return self.parse(**self.local_response(locals()))
 
+    @NaverAsyncSpider.validate_response
     def parse(self, response: str, indexType=str(), **context) -> pd.DataFrame:
         data = pd.read_html(StringIO(response))[0]
         data.columns = ["date"]+INVESTOR_COLUMNS
