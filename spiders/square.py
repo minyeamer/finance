@@ -1,52 +1,96 @@
-from gscraper.base import get_headers, log_messages, log_client
+from spiders import FinanceKrAsyncSpider, Flow, KST, get_headers
+from spiders import GET, API, SQUARE, URL, Code
 
-from base.spiders import FinanceAsyncSpider
-from base.urls import API_URL, GET_URL
-from data.models import KR_STOCK_PRICE_SCHEMA
-from parsers.square import *
+from data import KR_STOCK_PRICE_SCHEMA
+from data.square import SQAURE_DETAIL_INFO
+from data.square import SQUARE_PRICE_PARAMS, SQAURE_PRICE_INFO, SQUARE_PRICE_FIELDS
+
+from gscraper.base.types import IndexLabel, Id, DateFormat, Records, Data, JsonData
+from gscraper.utils.cast import cast_timestamp
+from gscraper.utils.map import between
 
 from typing import Dict, List, Optional, Union
-from aiohttp import ClientSession
-
-SQUARE = "square"
-
-MAX_LIMIT = 1000
-TOKEN = "eiVlUSkhrkIYaJ11nVFqHmDdHK8m1Hcy7p28i2dOcLaISw5fFVtyDP2GMWICQGDn"
+from abc import ABCMeta
+import re
 
 
-class SquareDetailSpider(FinanceAsyncSpider, SquareDetailParser):
+class SquareAsyncSpider(FinanceKrAsyncSpider):
+    __metaclass__ = ABCMeta
+    operation = "squareSpider"
+    host = SQUARE
+    where = "Alpha Square"
+    tzinfo = KST
+    token = "eiVlUSkhrkIYaJ11nVFqHmDdHK8m1Hcy7p28i2dOcLaISw5fFVtyDP2GMWICQGDn"
+
+
+###################################################################
+####################### Alpha Square Detail #######################
+###################################################################
+
+class SquareDetailSpider(SquareAsyncSpider):
     operation = "squareDetail"
-    message = "Collecting stock details from Alpha Square"
+    which = "stock details"
+    iterateArgs = ["code"]
+    iterateUnit = 1
+    responseType = "dict"
+    returnType = "records"
+    info = SQAURE_DETAIL_INFO()
+    flow = Flow("detail")
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, code: str, session: ClientSession=None, **kwargs) -> Dict:
-        api_url = API_URL(SQUARE, "details", code)
-        headers = get_headers(api_url, referer=GET_URL(SQUARE, "main"), origin=True)
-        headers["X-Csrftoken"] = TOKEN
-        self.logger.debug(log_messages(headers=headers, json=self.logJson))
-        async with session.get(api_url, headers=headers) as response:
-            self.logger.info(await log_client(response, url=api_url, code=code))
-            return self.parse(await response.text(), code, **kwargs)
+    @SquareAsyncSpider.catch_exception
+    @SquareAsyncSpider.limit_request
+    async def fetch(self, code: str, **context) -> Dict:
+        url = URL(API, SQUARE, "details", code)
+        headers = get_headers(url, referer=URL(GET, SQUARE, "main"), origin=True)
+        headers["X-Csrftoken"] = self.token
+        response = (await self.request_json(GET, **self.local_request(locals())))[code]
+        return self.parse(**self.local_response(locals()))
 
 
-class SquarePriceSpider(FinanceAsyncSpider, SquarePriceParser):
+###################################################################
+######################## Alpha Square Price #######################
+###################################################################
+
+class SquarePriceSpider(SquareAsyncSpider):
     operation = "squarePrice"
-    message = "Collecting stock prices from Alpha Square"
+    which = "stock prices"
+    iterateArgs = ["id", "code"]
+    iterateUnit = 1
+    responseType = "records"
+    returnType = "records"
+    dateType = "date"
+    info = SQAURE_PRICE_INFO()
+    flow = Flow()
 
-    @FinanceAsyncSpider.asyncio_errors
-    @FinanceAsyncSpider.asyncio_limit
-    async def fetch(self, id: str, code: str, freq: Optional[Union[str,int]]="day", limit=600,
-                    startDate=None, endDate=None, trunc=2, session: ClientSession=None, **kwargs) -> Dict:
-        api_url = API_URL(SQUARE, "prices", id)
-        freq = (f"minute-{freq}" if isinstance(freq, int) else freq)
-        params = {"freq":freq, "limit":min(limit,MAX_LIMIT), "include_current_candle":"false"}
-        headers = get_headers(host=api_url, referer=GET_URL(SQUARE, "main"), origin=True)
-        headers["X-Csrftoken"] = TOKEN
-        self.logger.debug(log_messages(params=params, headers=headers, json=self.logJson))
-        async with session.get(api_url, params=params, headers=headers) as response:
-            self.logger.info(await log_client(response, url=api_url, id=id, code=code))
-            return self.parse(await response.text(), id, code, freq, startDate, endDate, trunc, **kwargs)
+    @SquareAsyncSpider.init_session
+    async def crawl(self, id: Id, code: Code=list(), freq: Union[str,int]="day", limit=600,
+                    startTime: Optional[DateFormat]=None, endTime: Optional[DateFormat]=None,
+                    trunc: Optional[int]=2, **context) -> Data:
+        self.dateType = "datetime" if isinstance(freq, int) or ("minute" in str(freq)) else "date"
+        startTime, endTime = cast_timestamp(startTime), cast_timestamp(endTime)
+        args, context = self.validate_params(locals())
+        return await self.gather(*args, **context)
 
-    def get_gbq_schema(self, freq="day", **kwargs) -> List[Dict[str, str]]:
-        return KR_STOCK_PRICE_SCHEMA("time" if isinstance(freq, int) or "minute" in str(freq) else "date")
+    @SquareAsyncSpider.catch_exception
+    @SquareAsyncSpider.limit_request
+    async def fetch(self, id: str, code=str(), freq: Union[str,int]="day", limit=600,
+                    startTime: Optional[int]=None, endTime: Optional[int]=None, trunc=2, **context) -> Records:
+        url = URL(API, SQUARE, "prices", id)
+        params = SQUARE_PRICE_PARAMS(freq, limit)
+        headers = get_headers(host=url, referer=URL(GET, SQUARE, "main"), origin=True)
+        headers["X-Csrftoken"] = self.token
+        response = (await self.request_json(GET, **self.local_request(locals())))
+        return self.parse(**self.local_response(locals()))
+
+    @SquareAsyncSpider.validate_response
+    def parse(self, response: JsonData, startTime: Optional[int]=None, endTime: Optional[int]=None, **context) -> Records:
+        data = [dict(zip(SQUARE_PRICE_FIELDS, row)) for row in response["data"]
+                if isinstance(row[0], (float,int)) and between(row[0], startTime, endTime)]
+        return self.map(data, **context)
+
+    def get_flow(self, code=str(), **context) -> Flow:
+        is_kr_price = (not code) or re.match("\d{6}", str(code))
+        return super().get_flow(Flow("id", ("kr" if is_kr_price else "us")))
+
+    def get_upload_columns(self, name=str(), **context) -> IndexLabel:
+        return KR_STOCK_PRICE_SCHEMA(self.dateType).get("name")
