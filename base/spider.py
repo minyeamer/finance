@@ -12,6 +12,9 @@ import functools
 import pandas as pd
 
 
+EST = "US/Eastern"
+KST = "Asia/Seoul"
+
 Code = Union[str, Sequence[str]]
 Symbol = Union[str, Sequence[str]]
 
