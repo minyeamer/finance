@@ -8,12 +8,10 @@ from data.yahoo import get_yahoo_params, get_yahoo_cookies
 from data import US_STOCK_PRICE_SCHEMA
 from data.yahoo import YAHOO_PRICE_INFO, YAHOO_DATE_LIMIT
 
-from gscraper.base.types import IndexLabel, Keyword, DateFormat, Timezone, Data
-from gscraper.utils.date import get_timezone
+from gscraper.base.types import IndexLabel, Keyword, DateFormat, Records, Data
 from gscraper.utils.map import inter
-from base.spider import set_change
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 from abc import ABCMeta
 import datetime as dt
 import pandas as pd
@@ -133,20 +131,20 @@ class YahooPriceSpider(YahooSpider):
     which = "stock prices"
     iterateArgs = ["symbol"]
     iterateUnit = 1
-    responseType = "dataframe"
-    returnType = "dataframe"
+    responseType = "records"
+    returnType = "records"
     info = YAHOO_PRICE_INFO()
     flow = Flow("price")
 
     @YahooSpider.init_task
     def crawl(self, symbol: Symbol, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
-                freq="1d", prepost=False, trunc: Optional[int]=2, **context) -> Data:
+                freq: Union[str,int]="1d", prepost=False, trunc: Optional[int]=2, **context) -> Data:
         startDate, endDate, interval = self.set_date(startDate, endDate, freq)
         args, context = self.validate_params(locals())
         return self.gather(*args, **context)
 
     def set_date(self, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
-                freq="1d") -> Tuple[dt.date,dt.date,str]:
+                freq: Union[str,int]="1d") -> Tuple[dt.date,dt.date,str]:
         startDate, endDate = self.get_date_pair(startDate, endDate)
         today, limit = self.today(), YAHOO_DATE_LIMIT[freq]
         interval = "7D" if freq == "1m" else str()
@@ -160,25 +158,13 @@ class YahooPriceSpider(YahooSpider):
     @YahooSpider.catch_exception
     @YahooSpider.limit_request
     def fetch(self, symbol: str, startDate: Optional[dt.date]=None, endDate: Optional[dt.date]=None,
-                freq="1d", prepost=False, **context) -> pd.DataFrame:
+                freq: Union[str,int]="1d", prepost=False, **context) -> Records:
         response = yfinance.download(symbol, startDate, endDate, interval=freq, prepost=prepost, progress=False)
         return self.parse(response, symbol=symbol, **context)
 
     @YahooSpider.validate_response
-    def parse(self, response: pd.DataFrame, tzinfo: Optional[Timezone]=None, trunc=2, **context) -> pd.DataFrame:
-        data = response.reset_index()
-        data.columns = [column.lower() for column in data.columns]
-        data = self.map_date(data, tzinfo)
-        data = set_change(data, (trunc+2 if isinstance(trunc, int) else 4))
-        return self.map(data, tzinfo=tzinfo, trunc=trunc, **context)
-
-    def map_date(self, data: pd.DataFrame, tzinfo: Optional[Timezone]=None) -> pd.DataFrame:
-        data["date"] = data[("date" if "date" in data else "datetime")].apply(lambda x: x.date())
-        if "datetime" in data:
-            tzinfo = get_timezone(tzinfo)
-            if tzinfo: data["datetime"] = data["datetime"].apply(lambda x: x.astimezone(tzinfo))
-            else: data["datetime"] = data["datetime"].apply(lambda x: x.replace(tzinfo=None))
-        return data
+    def parse(self, response: pd.DataFrame, **context) -> Records:
+        return self.map(response.reset_index().to_dict("records"), **context)
 
     def get_upload_columns(self, interval="1d", name=str(), **context) -> IndexLabel:
         dateType = "time" if YAHOO_DATE_LIMIT.get(interval) else "date"

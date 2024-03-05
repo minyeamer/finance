@@ -1,9 +1,12 @@
 from data import Info, Query, Variable, Schema, Field, Map
 
 from gscraper.base.spider import parse_cookies
+from gscraper.base.types import Timezone
+from gscraper.utils.cast import get_timezone
 from gscraper.utils.date import now
 
-from typing import Dict
+from typing import Dict, Optional
+import datetime as dt
 
 
 ###################################################################
@@ -298,6 +301,17 @@ YAHOO_DATE_LIMIT = {
     "1m":30, "2m":60, "5m":60, "15m":60, "30m":60, "60m":730, "90m":60,
     "1h":730, "1d":None, "5d":None, "1wk":None, "1mo":None, "3mo":None}
 
+def _get_date(__m: Dict) -> dt.date:
+    return (__m["Date"] if "Date" in __m else __m["Datetime"])
+
+def _get_datetime(__m: Dict, tzinfo: Optional[Timezone]=None, **kwargs) -> dt.datetime:
+    datetime = __m.get("Datetime")
+    if isinstance(datetime, dt.datetime):
+        tzinfo = get_timezone(tzinfo)
+        if tzinfo: return datetime.astimezone(tzinfo)
+        else: return datetime.replace(tzinfo=None)
+    else: return None
+
 
 YAHOO_PRICE_QUERY = lambda: Query(
     Variable(name="symbol", type="STRING", desc="티커", iterable=True),
@@ -311,19 +325,14 @@ YAHOO_PRICE_QUERY = lambda: Query(
 
 YAHOO_PRICE_SCHEMA = lambda: Schema(
     Field(name="symbol", type="STRING", desc="티커", mode="QUERY", path=["symbol"]),
-    Field(name="date", type="DATE", desc="일자", mode="NULLABLE", path=["date"]),
-    Field(name="datetime", type="DATETIME", desc="일시", mode="OPTIONAL", path=["datetime"]),
-    Field(name="open", type="FLOAT", desc="시가", mode="NULLABLE", path=["open"]),
-    Field(name="high", type="FLOAT", desc="고가", mode="NULLABLE", path=["high"]),
-    Field(name="low", type="FLOAT", desc="저가", mode="NULLABLE", path=["low"]),
-    Field(name="close", type="FLOAT", desc="종가", mode="NULLABLE", path=["close"]),
-    Field(name="adjClose", type="FLOAT", desc="수정종가", mode="NULLABLE", path=["adj close"]),
-    Field(name="previousClose", type="FLOAT", desc="이전종가", mode="NULLABLE", path=["previousClose"]),
-    Field(name="gap", type="FLOAT", desc="시가대비", mode="NULLABLE", path=["gap"]),
-    Field(name="highPct", type="FLOAT", desc="고가대비", mode="NULLABLE", path=["highPct"]),
-    Field(name="lowPct", type="FLOAT", desc="저가대비", mode="NULLABLE", path=["lowPct"]),
-    Field(name="change", type="FLOAT", desc="변동률", mode="NULLABLE", path=["change"]),
-    Field(name="volume", type="INTEGER", desc="거래량", mode="NULLABLE", path=["volume"]),
+    Field(name="date", type="DATE", desc="일자", mode="NULLABLE", path=_get_date),
+    Field(name="datetime", type="DATETIME", desc="일시", mode="OPTIONAL", path=_get_datetime),
+    Field(name="open", type="FLOAT", desc="시가", mode="NULLABLE", path=["Open"]),
+    Field(name="high", type="FLOAT", desc="고가", mode="NULLABLE", path=["High"]),
+    Field(name="low", type="FLOAT", desc="저가", mode="NULLABLE", path=["Low"]),
+    Field(name="close", type="FLOAT", desc="종가", mode="NULLABLE", path=["Close"]),
+    Field(name="adjClose", type="FLOAT", desc="수정종가", mode="NULLABLE", path=["Adj Close"]),
+    Field(name="volume", type="INTEGER", desc="거래량", mode="NULLABLE", path=["Volume"]),
 )
 
 
