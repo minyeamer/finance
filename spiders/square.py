@@ -2,8 +2,8 @@ from spiders import FinanceKrAsyncSpider, Flow, KST, get_headers
 from spiders import GET, API, SQUARE, URL, Code
 
 from data import KR_STOCK_PRICE_SCHEMA
-from data.square import SQAURE_DETAIL_INFO
-from data.square import SQUARE_PRICE_PARAMS, SQAURE_PRICE_INFO, SQUARE_PRICE_FIELDS
+from data.square import SQUARE_DETAIL_INFO
+from data.square import SQUARE_PRICE_PARAMS, SQUARE_PRICE_INFO, SQUARE_PRICE_FIELDS
 
 from gscraper.base.types import IndexLabel, Id, DateFormat, Records, Data, JsonData
 from gscraper.utils.cast import cast_timestamp
@@ -34,7 +34,7 @@ class SquareDetailSpider(SquareAsyncSpider):
     iterateUnit = 1
     responseType = "dict"
     returnType = "records"
-    info = SQAURE_DETAIL_INFO()
+    info = SQUARE_DETAIL_INFO()
     flow = Flow("detail")
 
     @SquareAsyncSpider.catch_exception
@@ -59,7 +59,7 @@ class SquarePriceSpider(SquareAsyncSpider):
     responseType = "records"
     returnType = "records"
     dateType = "date"
-    info = SQAURE_PRICE_INFO()
+    info = SQUARE_PRICE_INFO()
     flow = Flow()
 
     @SquareAsyncSpider.init_session

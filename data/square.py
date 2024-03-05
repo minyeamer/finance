@@ -5,7 +5,7 @@ from data import Info, Query, Variable, Schema, Field, Match
 ####################### Alpha Square Detail #######################
 ###################################################################
 
-SQAURE_DETAIL_SCHEMA = lambda: Schema(
+SQUARE_DETAIL_SCHEMA = lambda: Schema(
     Field(name="id", type="STRING", desc="ID", mode="REQUIRED", path=["id"]),
     Field(name="code", type="STRING", desc="종목코드", mode="QUERY", path=["code"]),
     Field(name="isin", type="STRING", desc="12자리코드", mode="NULLABLE", path=["isin"]),
@@ -26,9 +26,9 @@ SQAURE_DETAIL_SCHEMA = lambda: Schema(
 )
 
 
-SQAURE_DETAIL_INFO = lambda: Info(
+SQUARE_DETAIL_INFO = lambda: Info(
     query = Query(Variable(name="code", type="STRING", desc="종목코드", iterable=True)),
-    detail = SQAURE_DETAIL_SCHEMA(),
+    detail = SQUARE_DETAIL_SCHEMA(),
 )
 
 
@@ -58,7 +58,7 @@ SQUARE_PRICE_QUERY = lambda: Query(
 )
 
 
-SQAURE_PRICE_ID_SCHEMA = lambda: Schema(
+SQUARE_PRICE_ID_SCHEMA = lambda: Schema(
     Field(name="id", type="STRING", desc="ID", mode="QUERY", path=["id"]),
     Field(name="code", type="STRING", desc="종목코드", mode="QUERY", path=["code"]),
     Field(name="datetime", type="DATETIME", desc="일시", mode="NULLABLE", path=["date"]),
@@ -82,9 +82,9 @@ SQUARE_PRICE_US_VALUE_SCHEMA = lambda: Schema(
 )
 
 
-SQAURE_PRICE_INFO = lambda: Info(
+SQUARE_PRICE_INFO = lambda: Info(
     query = Query(Variable(name="code", type="STRING", desc="종목코드", iterable=True)),
-    id = SQAURE_PRICE_ID_SCHEMA(),
+    id = SQUARE_PRICE_ID_SCHEMA(),
     kr = SQUARE_PRICE_KR_VALUE_SCHEMA(),
     us = SQUARE_PRICE_US_VALUE_SCHEMA(),
 )
