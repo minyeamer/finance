@@ -1,4 +1,5 @@
 from data import Info, Query, Variable, Schema, Field, Match
+from data import PipelineInfo, PipelineQuery, PipelineSchema, PipelineField
 
 
 ###################################################################
@@ -57,6 +58,14 @@ SQUARE_PRICE_QUERY = lambda: Query(
     Variable(name="trunc", type="INTEGER", desc="반올림위치", iterable=False, default=2),
 )
 
+STOCK_PRICE_KR_QUERY = lambda: PipelineQuery(
+    Variable(name="query", type="DICT", desc="쿼리", iterable=True),
+    Variable(name="limit", type="INTEGER", desc="표시수", iterable=False, default=600),
+    Variable(name="startTime", type="DATETIME", desc="시작일시", iterable=False, default=None),
+    Variable(name="endTime", type="DATETIME", desc="종료일시", iterable=False, default=None),
+    Variable(name="trunc", type="INTEGER", desc="반올림위치", iterable=False, default=2),
+)
+
 
 SQUARE_PRICE_ID_SCHEMA = lambda: Schema(
     Field(name="id", type="STRING", desc="ID", mode="QUERY", path=["id"]),
@@ -83,8 +92,14 @@ SQUARE_PRICE_US_VALUE_SCHEMA = lambda: Schema(
 
 
 SQUARE_PRICE_INFO = lambda: Info(
-    query = Query(Variable(name="code", type="STRING", desc="종목코드", iterable=True)),
+    query = SQUARE_PRICE_QUERY(),
     id = SQUARE_PRICE_ID_SCHEMA(),
     kr = SQUARE_PRICE_KR_VALUE_SCHEMA(),
     us = SQUARE_PRICE_US_VALUE_SCHEMA(),
+)
+
+STOCK_PRICE_KR_INFO = lambda: PipelineInfo(
+    query = STOCK_PRICE_KR_QUERY(),
+    id = SQUARE_PRICE_ID_SCHEMA(),
+    price = SQUARE_PRICE_KR_VALUE_SCHEMA(),
 )

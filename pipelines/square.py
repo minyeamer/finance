@@ -1,50 +1,79 @@
+from pipelines import AsyncPipeline, Dag, Task
+
 from spiders.square import SquarePriceSpider
+from data.square import STOCK_PRICE_KR_INFO
+from data import KR_STOCK_PRICE_SCHEMA
 
-from typing import Dict, List, Optional, Tuple, Union
-import pandas as pd
+from gscraper.base.types import Context, IndexLabel, DateFormat, Records, MappedData
 
-SQUARE = "square"
+from typing import Dict, List, Optional
 
 
-price_message = lambda __type, __freq: f"Collecting {__type} prices by {__freq} from Alpha Square"
+###################################################################
+######################## Alpha Square Price #######################
+###################################################################
 
-DEFAULT_QUERY = ["stock_1d", "stock_1h", "stock_1m", "etf_1d"]
-QUERY_CONTEXT = {
-    "stock_1d": {"freq":"day", "message":price_message("stock","day")},
-    "stock_1h": {"freq":60, "message":price_message("stock","1hour")},
-    "stock_1m": {"freq":1, "message":price_message("stock","1min")},
-    "etf_1d": {"freq":"day", "message":price_message("etf","day")},
-}
+PRICE_FIELDS = ["open", "high", "low", "close", "volume"]
+DAILY_PRICE_FIELDS = ["code", "date"] + PRICE_FIELDS
+HOURLY_PRICE_FIELDS = ["code", "datetime"] + PRICE_FIELDS
 
-class SquarePricePipeline(SquarePriceSpider):
-    operation = "squarePrices"
+QUERY_TYPE = ["stock_1d", "stock_1h", "stock_1m", "etf_1d"]
+QUERY_FREQ = {"stock_1d":"day", "stock_1h":60, "stock_1m":1, "etf_1d":"day"}
 
-    @SquarePriceSpider.asyncio_session
-    async def crawl(self, id: List[str], code: List[str], etf: List[Union[bool,str]], freq: List[int],
-                queryTypes: Optional[List[str]]=list(), limit=600, startDate=None, endDate=None, trunc=2,
-                **kwargs) -> Dict[str,List[Dict]]:
-        queries = self.split_query(id, code, etf, freq)
-        results = {queryType:list() for queryType in DEFAULT_QUERY}
-        context = dict(limit=limit, startDate=startDate, endDate=endDate, trunc=trunc, **kwargs)
-        for queryType in (queryTypes if queryTypes else DEFAULT_QUERY):
-            results[queryType] = await self.gather(queries[queryType], **QUERY_CONTEXT[queryType], **context)
-        self.upload_price(**results, **kwargs)
-        return results
+def add_id_params(queryMap: Dict[str,Dict[str,List[str]]], __type: str, id: str, code: str, **kwargs):
+    queryMap[__type]["id"].append(id)
+    queryMap[__type]["code"].append(code)
 
-    def split_query(self, id: List[str], code: List[str], etf: List[Union[bool,str]], freq: List[int],
-                    **kwargs) -> Dict[str,List[Tuple[str,str]]]:
-        query = pd.DataFrame({"id":id, "code":code, "etf":etf, "freq":freq})
-        query["etf"] = query["etf"].apply(lambda x: x=="TRUE" if isinstance(x, str) else x)
-        stock, etf = query[~query["etf"]], query[query["etf"]]
-        stock_1d, stock_1h, stock_1m = stock[stock["freq"]<=390], stock[stock["freq"]<=60], stock[stock["freq"]==1]
-        to_query = lambda data: [(x,y) for x,y in zip(data["id"],data["code"])]
-        return {"stock_1d":to_query(stock_1d), "stock_1h":to_query(stock_1h),
-                "stock_1m":to_query(stock_1m), "etf_1d":to_query(etf)}
+class StockPriceKrPipeline(AsyncPipeline):
+    operation = "stockPriceKr"
+    fields = {"stock_1d":DAILY_PRICE_FIELDS, "stock_1h":HOURLY_PRICE_FIELDS, "stock_1m":HOURLY_PRICE_FIELDS, "etf_1d":DAILY_PRICE_FIELDS}
+    returnType = "dataframe"
+    mappedReturn = True
+    info = STOCK_PRICE_KR_INFO()
+    dags = Dag(
+        Task(operator=SquarePriceSpider, name="square1dPrice", task="crawl_price", dataName="stock_1d", dataType="records",
+        key="stock_1d", by="by day"),
+        Task(operator=SquarePriceSpider, name="square1hPrice", task="crawl_price", dataName="stock_1h", dataType="records",
+        key="stock_1h", by="by hour"),
+        Task(operator=SquarePriceSpider, name="square1mPrice", task="crawl_price", dataName="stock_1m", dataType="records",
+        key="stock_1m", by="by minute"),
+        Task(operator=SquarePriceSpider, name="squareEtfPrice", task="crawl_price", dataName="etf_1d", dataType="records",
+        key="etf_1d", which="etf prices"),
+    )
 
-    def upload_price(self, stock_1d: List[Dict], stock_1h: List[Dict], stock_1m: List[Dict], etf_1d: List[Dict],
-                    gsSheet=str(), gbqTable=str(), gbqMode="append", gbqSchema=None, gbqIndex=str(), **kwargs):
-        daySchema, timeSchema = self.get_gbq_schema(freq="day"), self.get_gbq_schema(freq="minute")
-        self.upload_data(stock_1d, gbqTable="kr.stock_1d", gbqMode=gbqMode, gbqSchema=daySchema, **kwargs)
-        self.upload_data(stock_1h, gbqTable="kr.stock_1h", gbqMode=gbqMode, gbqSchema=timeSchema, **kwargs)
-        self.upload_data(stock_1m, gbqTable="kr.stock_1m", gbqMode=gbqMode, gbqSchema=timeSchema, **kwargs)
-        self.upload_data(etf_1d, gbqTable="kr.etf_1d", gbqMode=gbqMode, gbqSchema=daySchema, **kwargs)
+    @AsyncPipeline.init_task
+    async def crawl(self, query: Records, limit=600, startTime: Optional[DateFormat]=None, endTime: Optional[DateFormat]=None,
+                    trunc: Optional[int]=2, **context) -> MappedData:
+        context = self.validate_context(**self.from_locals(locals()))
+        return await self.gather(**context)
+
+    def validate_context(self, query: Records, **context) -> Context:
+        queryMap = {__type: dict(id=list(), code=list()) for __type in QUERY_TYPE}
+        for __q in query:
+            freq = __q.get("freq", "day")
+            if __q.get("etf"): add_id_params(queryMap, "etf_1d", **__q)
+            elif isinstance(freq, (float,int)):
+                if freq <= 390: add_id_params(queryMap, "stock_1d", **__q)
+                if freq <= 60: add_id_params(queryMap, "stock_1h", **__q)
+                if freq <= 1: add_id_params(queryMap, "stock_1m", **__q)
+            elif freq == "day": add_id_params(queryMap, "stock_1d", **__q)
+            elif freq == "minute-60": add_id_params(queryMap, "stock_1h", **__q)
+            elif freq == "minute-1": add_id_params(queryMap, "stock_1m", **__q)
+            else: continue
+        return dict(context, queryMap=queryMap)
+
+    @AsyncPipeline.validate_data
+    @AsyncPipeline.limit_request
+    async def crawl_price(self, worker: SquarePriceSpider, queryMap: Dict[str,Dict[str,List[str]]], key: str, **params) -> Records:
+        params.update(queryMap[key])
+        if not (params.get("id") and params.get("code")): return list()
+        else: return await worker.crawl(**params)
+
+    @AsyncPipeline.arrange_data
+    def map_reduce(self, stock_1d: Records=list(), stock_1h: Records=list(), stock_1m: Records=list(),
+                    etf_1d: Records=list(), **context) -> MappedData:
+        return dict(stock_1d=stock_1d, stock_1h=stock_1h, stock_1m=stock_1m, etf_1d=etf_1d)
+
+    def get_upload_columns(self, name=str(), **context) -> IndexLabel:
+        dateType = "date" if name.endswith("1d") else "datetime"
+        return KR_STOCK_PRICE_SCHEMA(dateType).get("name")
