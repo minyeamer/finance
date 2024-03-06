@@ -167,5 +167,5 @@ class YahooPriceSpider(YahooSpider):
         return self.map(response.reset_index().to_dict("records"), **context)
 
     def get_upload_columns(self, interval="1d", name=str(), **context) -> IndexLabel:
-        dateType = "time" if YAHOO_DATE_LIMIT.get(interval) else "date"
+        dateType = "datetime" if YAHOO_DATE_LIMIT.get(interval) else "date"
         return US_STOCK_PRICE_SCHEMA(dateType).get("name")

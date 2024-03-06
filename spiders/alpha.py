@@ -77,5 +77,5 @@ class AlphaPriceSpider(AlphaSpider):
         return self.map(data.to_dict("records"), **context)
 
     def get_upload_columns(self, freq: Union[str,int]="1d", name=str(), **context) -> IndexLabel:
-        dateType = "time" if isinstance(freq, int) or ("min" in str(freq)) else "date"
+        dateType = "datetime" if isinstance(freq, int) or ("min" in str(freq)) else "date"
         return US_STOCK_PRICE_SCHEMA(dateType).get("name")
