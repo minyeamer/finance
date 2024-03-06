@@ -22,6 +22,10 @@ gcp-scraper>=3.5.8
 # google-cloud-bigquery>=3.4.0
 # db-dtypes>=1.2.0
 
+# Holiday
+holidays>=0.43
+workalendar>=17.0.0
+
 # Finance
 finance-datareader>=0.9.66
 yfinance>=0.2.35
