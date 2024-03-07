@@ -86,6 +86,10 @@ def change(__from: float, __to: float) -> float:
     return (__to - __from) / __from
 
 
+def _round(x: float, trunc: Optional[int]=2) -> float:
+    return round(x, trunc) if isinstance(trunc, int) and isinstance(x, float) and pd.notna(x) else x
+
+
 def assure_dataframe(func):
     @functools.wraps(func)
     def wrapper(data: TabularData, *args, **kwargs):
@@ -109,7 +113,7 @@ def groupby_symbols(data: pd.DataFrame, column="symbol") -> List[pd.DataFrame]:
 def set_change(data: pd.DataFrame, trunc: Optional[int]=4) -> pd.DataFrame:
     if "close" not in data:
         return data
-    if "preivousClose" not in data:
+    if "previousClose" not in data:
         data = set_previous_close(data)
     return _calc_change_by_price(data, trunc=trunc)
 
@@ -134,14 +138,12 @@ def _calc_change_by_price(data: pd.DataFrame, trunc: Optional[int]=4) -> pd.Data
     for column, price in zip(PRICE_CHANGES, PRICE_COLUMNS):
         if (price == "open") and ("datetime" in data): continue
         elif price in data:
-            change = (data[price] - data["previousClose"]) / data["previousClose"]
-            if isinstance(trunc, int):
-                data[column] = change.apply(lambda x: round(x, trunc) if pd.notna(x) and isinstance(x, float) else x)
+            data[column] = ((data[price] - data["previousClose"]) / data["previousClose"]).apply(lambda x: _round(x, trunc))
     return data
 
 
 @assure_dataframe
-def set_draw_down(data: pd.DataFrame, maxPrice: Optional[Real]=None) -> pd.DataFrame:
+def set_draw_down(data: pd.DataFrame, maxPrice: Optional[Real]=None, trunc: Optional[int]=4) -> pd.DataFrame:
     if ("high" not in data) or ("close" not in data): return data
     elif isinstance(maxPrice, (float,int)):
         data = pd.concat([pd.DataFrame([{"high":maxPrice}], columns=data.columns), data])
@@ -149,7 +151,7 @@ def set_draw_down(data: pd.DataFrame, maxPrice: Optional[Real]=None) -> pd.DataF
     data["maxPrice"] = data["high"].cummax()
     if isinstance(maxPrice, (float,int)):
         data = data.iloc[1:].copy()
-    data["drawDown"] = (data["close"] - data["maxPrice"]) / data["maxPrice"]
+    data["drawDown"] = ((data["close"] - data["maxPrice"]) / data["maxPrice"]).apply(lambda x: _round(x, trunc))
     return data
 
 

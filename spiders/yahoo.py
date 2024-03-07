@@ -166,6 +166,10 @@ class YahooPriceSpider(YahooSpider):
     def parse(self, response: pd.DataFrame, **context) -> Records:
         return self.map(response.reset_index().to_dict("records"), **context)
 
+    def is_valid_response(self, response: pd.DataFrame) -> bool:
+        if response.empty: raise ValueError("Failed download")
+        else: return True
+
     def get_upload_columns(self, interval="1d", name=str(), **context) -> IndexLabel:
         dateType = "datetime" if YAHOO_DATE_LIMIT.get(interval) else "date"
         return US_STOCK_PRICE_SCHEMA(dateType).get("name")

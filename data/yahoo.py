@@ -1,4 +1,5 @@
 from data import Info, Query, Variable, Schema, Field, Map
+from data import PipelineInfo, PipelineQuery, PipelineSchema, PipelineField
 
 from gscraper.base.spider import parse_cookies
 from gscraper.base.types import Timezone
@@ -322,11 +323,19 @@ YAHOO_PRICE_QUERY = lambda: Query(
     Variable(name="trunc", type="INTEGER", desc="반올림위치", iterable=False, default=2),
 )
 
+DAILY_INDEX_QUERY = lambda: PipelineQuery(
+    Variable(name="startDate", type="DATE", desc="시작일자", iterable=False, default=None),
+    Variable(name="endDate", type="DATE", desc="종료일자", iterable=False, default=None),
+    Variable(name="maxPrice", type="FLOAT", desc="최고가", iterable=False, default=None),
+    Variable(name="trunc", type="INTEGER", desc="반올림위치", iterable=False, default=2),
+    Variable(name="tzinfo", type=None, desc="시간대", iterable=False, default=None),
+)
+
 
 YAHOO_PRICE_SCHEMA = lambda: Schema(
     Field(name="symbol", type="STRING", desc="티커", mode="QUERY", path=["symbol"]),
-    Field(name="date", type="DATE", desc="일자", mode="NULLABLE", path=_get_date),
     Field(name="datetime", type="DATETIME", desc="일시", mode="OPTIONAL", path=_get_datetime),
+    Field(name="date", type="DATE", desc="일자", mode="NULLABLE", path=_get_date),
     Field(name="open", type="FLOAT", desc="시가", mode="NULLABLE", path=["Open"]),
     Field(name="high", type="FLOAT", desc="고가", mode="NULLABLE", path=["High"]),
     Field(name="low", type="FLOAT", desc="저가", mode="NULLABLE", path=["Low"]),
@@ -335,8 +344,94 @@ YAHOO_PRICE_SCHEMA = lambda: Schema(
     Field(name="volume", type="INTEGER", desc="거래량", mode="NULLABLE", path=["Volume"]),
 )
 
+PRICE_CHANGE_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="gap", type="FLOAT", desc=""),
+    PipelineField(name="highPct", type="FLOAT", desc=""),
+    PipelineField(name="lowPct", type="FLOAT", desc=""),
+    PipelineField(name="previousClose", type="FLOAT", desc=""),
+    PipelineField(name="change", type="FLOAT", desc=""),
+)
+
+PREPOST_PRICE_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="preHigh", type="FLOAT", desc=""),
+    PipelineField(name="preHighPct", type="FLOAT", desc=""),
+    PipelineField(name="preLow", type="FLOAT", desc=""),
+    PipelineField(name="preLowPct", type="FLOAT", desc=""),
+    PipelineField(name="preChange", type="FLOAT", desc=""),
+    PipelineField(name="postHigh", type="FLOAT", desc=""),
+    PipelineField(name="postHighPct", type="FLOAT", desc=""),
+    PipelineField(name="postLow", type="FLOAT", desc=""),
+    PipelineField(name="postLowPct", type="FLOAT", desc=""),
+    PipelineField(name="postChange", type="FLOAT", desc=""),
+)
+
+TOP_STOCK_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="topSymbol", type="STRING", desc=""),
+    PipelineField(name="topClose", type="FLOAT", desc=""),
+    PipelineField(name="topChange", type="FLOAT", desc=""),
+)
+
+DRAW_DOWN_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="maxPrice", type="FLOAT", desc=""),
+    PipelineField(name="drawDown", type="FLOAT", desc=""),
+)
+
+US_INDEX_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="VIX", type="FLOAT"),
+    PipelineField(name="USDX", type="FLOAT"),
+    PipelineField(name="IRX", type="FLOAT"),
+    PipelineField(name="TNX", type="FLOAT"),
+    PipelineField(name="CL=F", type="FLOAT"),
+    PipelineField(name="BTC-USD", type="FLOAT"),
+    PipelineField(name="BTC-Change", type="FLOAT"),
+)
+
+KS_INDEX_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="KS200", type="FLOAT"),
+    PipelineField(name="USD/KRW", type="FLOAT"),
+    PipelineField(name="NASDAQ", type="FLOAT"),
+    PipelineField(name="HSI", type="FLOAT"),
+)
+
+KQ_INDEX_SCHEMA = lambda: PipelineSchema(
+    PipelineField(name="KQ100", type="FLOAT"),
+    PipelineField(name="KQ15", type="FLOAT"),
+    PipelineField(name="KQ26", type="FLOAT"),
+    PipelineField(name="KQ47", type="FLOAT"),
+    PipelineField(name="USD/KRW", type="FLOAT"),
+    PipelineField(name="NASDAQ", type="FLOAT"),
+    PipelineField(name="HSI", type="FLOAT"),
+)
+
 
 YAHOO_PRICE_INFO = lambda: Info(
     query = YAHOO_PRICE_QUERY(),
     price = YAHOO_PRICE_SCHEMA(),
+)
+
+DAILY_NASDAQ_INFO = lambda: PipelineInfo(
+    query = DAILY_INDEX_QUERY(),
+    price = YAHOO_PRICE_SCHEMA(),
+    change = PRICE_CHANGE_SCHEMA(),
+    prepost = PREPOST_PRICE_SCHEMA(),
+    drawdown = DRAW_DOWN_SCHEMA(),
+    index = US_INDEX_SCHEMA(),
+)
+
+DAILY_KOSPI_INFO = lambda: PipelineInfo(
+    query = DAILY_INDEX_QUERY(),
+    price = YAHOO_PRICE_SCHEMA(),
+    change = PRICE_CHANGE_SCHEMA(),
+    top = TOP_STOCK_SCHEMA(),
+    drawdown = DRAW_DOWN_SCHEMA(),
+    index = KS_INDEX_SCHEMA(),
+)
+
+DAILY_KOSDAQ_INFO = lambda: PipelineInfo(
+    query = DAILY_INDEX_QUERY(),
+    price = YAHOO_PRICE_SCHEMA(),
+    change = PRICE_CHANGE_SCHEMA(),
+    top = TOP_STOCK_SCHEMA(),
+    drawdown = DRAW_DOWN_SCHEMA(),
+    index = KQ_INDEX_SCHEMA(),
 )
