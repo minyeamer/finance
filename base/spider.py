@@ -1,5 +1,5 @@
 from __future__ import annotations
-from gscraper.base.spider import Spider, AsyncSpider
+from gscraper.base.spider import Spider, AsyncSpider, EncryptedSpider, EncryptedAsyncSpider
 from gscraper.base.types import Keyword, DateFormat, Data, TabularData
 
 from gscraper.utils.cast import cast_date
@@ -202,6 +202,54 @@ class FinanceKrAsyncSpider(AsyncSpider):
     iterateUnit = 1
 
     @AsyncSpider.init_session
+    async def crawl(self, code: Keyword, **context) -> Data:
+        args, context = self.validate_params(code=code, **context)
+        return await self.gather(*args, **context)
+
+
+class FinanceEncSpider(EncryptedSpider):
+    __metaclass__ = ABCMeta
+    operation = "finance"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+
+    @EncryptedSpider.login_session
+    def crawl(self, symbol: Keyword, **context) -> Data:
+        args, context = self.validate_params(symbol=symbol, **context)
+        return self.gather(*args, **context)
+
+
+class FinanceKrEncSpider(EncryptedSpider):
+    __metaclass__ = ABCMeta
+    operation = "finance"
+    iterateArgs = ["code"]
+    iterateUnit = 1
+
+    @EncryptedSpider.login_session
+    def crawl(self, code: Keyword, **context) -> Data:
+        args, context = self.validate_params(code=code, **context)
+        return self.gather(*args, **context)
+
+
+class FinanceEncAsyncSpider(EncryptedAsyncSpider):
+    __metaclass__ = ABCMeta
+    operation = "finance"
+    iterateArgs = ["symbol"]
+    iterateUnit = 1
+
+    @EncryptedAsyncSpider.login_session
+    async def crawl(self, symbol: Keyword, **context) -> Data:
+        args, context = self.validate_params(symbol=symbol, **context)
+        return await self.gather(*args, **context)
+
+
+class FinanceKrEncAsyncSpider(EncryptedAsyncSpider):
+    __metaclass__ = ABCMeta
+    operation = "finance"
+    iterateArgs = ["code"]
+    iterateUnit = 1
+
+    @EncryptedAsyncSpider.login_session
     async def crawl(self, code: Keyword, **context) -> Data:
         args, context = self.validate_params(code=code, **context)
         return await self.gather(*args, **context)
