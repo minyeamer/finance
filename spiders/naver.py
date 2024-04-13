@@ -45,13 +45,13 @@ class NaverStockInfoSpider(NaverAsyncSpider):
     async def crawl(self, code: Code, stockType: Sequence[Literal["company","etf"]], **context) -> Data:
         return await self.gather(*self.validate_args(code, stockType, how="first"), **context)
 
-    @NaverAsyncSpider.catch_exception
+    @NaverAsyncSpider.retry_request
     @NaverAsyncSpider.limit_request
     async def fetch(self, code: str, stockType: Literal["company","etf"], **context) -> Records:
         url = URL(API, NAVER, stockType, code)
         headers = get_headers(host=url, referer=URL(GET, NAVER, "main", code), secure=True)
-        response = await self.request_text(GET, **self.local_request(locals()))
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_text(GET, url, headers=headers, **context)
+        return self.parse(response, code=code, stockType=stockType, **context)
 
     @NaverAsyncSpider.validate_response
     def parse(self, response: str, code: str, stockType: Literal["company","etf"], **context) -> Dict:
@@ -96,14 +96,14 @@ class NaverInvestorSpider(NaverAsyncSpider):
             size = (ceil(np.busday_count(startDate, endDate)/self.pageLimit) if startDate else 1) * self.pageLimit
         return dict(context, bizdate=endDate.strftime("%Y%m%d"), size=size, pageSize=self.pageLimit, **dateFilter)
 
-    @NaverAsyncSpider.catch_exception
+    @NaverAsyncSpider.retry_request
     @NaverAsyncSpider.limit_request
     async def fetch(self, bizdate: str, indexType="KOSPI", page=1, **context) -> pd.DataFrame:
         url = URL(GET, NAVER, "investor")
         params = dict(bizdate=bizdate, sosok=INDEX_CATEGORY.get(indexType,"01"), page=page)
         headers = get_headers(host=url, referer=url, secure=True)
-        response = await self.request_text(GET, **self.local_request(locals()))
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_text(GET, url, params=params, headers=headers, **context)
+        return self.parse(response, indexType=indexType, **context)
 
     @NaverAsyncSpider.validate_response
     def parse(self, response: str, indexType=str(), **context) -> pd.DataFrame:

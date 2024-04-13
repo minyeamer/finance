@@ -9,7 +9,7 @@ from gscraper.base.types import IndexLabel, Id, DateFormat, Records, Data, JsonD
 from gscraper.utils.cast import cast_timestamp
 from gscraper.utils.map import between
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 from abc import ABCMeta
 import re
 
@@ -34,17 +34,18 @@ class SquareDetailSpider(SquareAsyncSpider):
     iterateUnit = 1
     responseType = "dict"
     returnType = "records"
+    root = ["code"]
     info = SQUARE_DETAIL_INFO()
     flow = Flow("detail")
 
-    @SquareAsyncSpider.catch_exception
+    @SquareAsyncSpider.retry_request
     @SquareAsyncSpider.limit_request
     async def fetch(self, code: str, **context) -> Dict:
         url = URL(API, SQUARE, "details", code)
         headers = get_headers(url, referer=URL(GET, SQUARE, "main"), origin=True)
         headers["X-Csrftoken"] = self.token
-        response = (await self.request_json(GET, **self.local_request(locals())))[code]
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_json(GET, url, headers=headers, **context)
+        return self.parse(response, code=code, **context)
 
 
 ###################################################################
@@ -71,7 +72,7 @@ class SquarePriceSpider(SquareAsyncSpider):
         args, context = self.validate_params(locals())
         return await self.gather(*args, **context)
 
-    @SquareAsyncSpider.catch_exception
+    @SquareAsyncSpider.retry_request
     @SquareAsyncSpider.limit_request
     async def fetch(self, id: str, code=str(), freq: Union[str,int]="day", limit=600,
                     startTime: Optional[int]=None, endTime: Optional[int]=None, trunc=2, **context) -> Records:
@@ -79,8 +80,8 @@ class SquarePriceSpider(SquareAsyncSpider):
         params = SQUARE_PRICE_PARAMS(freq, limit)
         headers = get_headers(host=url, referer=URL(GET, SQUARE, "main"), origin=True)
         headers["X-Csrftoken"] = self.token
-        response = (await self.request_json(GET, **self.local_request(locals())))
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_json(GET, url, params=params, headers=headers, **context)
+        return self.parse(response, locals=locals())
 
     @SquareAsyncSpider.validate_response
     def parse(self, response: JsonData, startTime: Optional[int]=None, endTime: Optional[int]=None, **context) -> Records:

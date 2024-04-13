@@ -59,17 +59,19 @@ class YahooTickerSpider(YahooSpider):
 
     @YahooSpider.init_task
     def crawl(self, symbol: Symbol, section: Keyword=["summary"], prepost=False, trunc: Optional[int]=2, **context) -> Data:
-        self.flow = Flow(*self.map_section(section, prepost))
-        args, context = self.validate_params(symbol=symbol, trunc=trunc, **context)
+        args, context = self.validate_params(locals())
         return self.gather(*args, **context)
 
-    @YahooSpider.catch_exception
+    @YahooSpider.retry_request
     @YahooSpider.limit_request
-    def fetch(self, symbol: str, **context) -> Dict:
+    def fetch(self, symbol: str, section: Keyword=["summary"], prepost=False, **context) -> Dict:
         response = yfinance.Ticker(fmt(symbol))
-        return self.parse(response.info, symbol=symbol, **context)
+        return self.parse(response.info, symbol=symbol, section=section, prepost=prepost, **context)
 
-    def map_section(self, section: Keyword=["summary"], prepost=False) -> Keyword:
+    def get_flow(self, section: Keyword=["summary"], prepost=False, **context) -> Flow:
+        return super().get_flow(Flow(*self.validate_section(section, prepost)))
+
+    def validate_section(self, section: Keyword=["summary"], prepost=False) -> Keyword:
         section = inter(YAHOO_TICKER_SECTION, section) if section else YAHOO_TICKER_SECTION
         if section[0] == "summary":
             section.insert(1, ("prepost" if prepost else "regular"))
@@ -91,14 +93,14 @@ class YahooQuerySpider(YahooAsyncSpider):
     info = YAHOO_QUERY_INFO()
     flow = Flow("info")
 
-    @YahooAsyncSpider.catch_exception
+    @YahooAsyncSpider.retry_request
     @YahooAsyncSpider.limit_request
     async def fetch(self, symbol: str, **context) -> Dict:
         url = URL(API, YAHOO, "query", fmt(symbol))
         params = get_yahoo_params(symbols=fmt(symbol), fields=','.join(YAHOO_QUERY_FIELDS))
         headers = get_yahoo_headers(url, symbol)
-        response = await self.request_json(GET, encode=True, **self.local_request(locals()))
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_json(GET, url, params=params, encode=True, headers=headers, **context)
+        return self.parse(response, symbol=symbol, **context)
 
 
 class YahooSummarySpider(YahooAsyncSpider):
@@ -112,14 +114,14 @@ class YahooSummarySpider(YahooAsyncSpider):
     info = YAHOO_SUMMARY_INFO()
     flow = Flow("summary")
 
-    @YahooAsyncSpider.catch_exception
+    @YahooAsyncSpider.retry_request
     @YahooAsyncSpider.limit_request
     async def fetch(self, symbol: str, **context) -> Dict:
         url = URL(API, YAHOO, "summary", fmt(symbol))
         params = get_yahoo_params(modules="assetProfile,secFilings")
         headers = get_yahoo_headers(url, symbol)
-        response = await self.request_json(GET, encode=True, **self.local_request(locals()))
-        return self.parse(**self.local_response(locals()))
+        response = await self.request_json(GET, url, params=params, encode=True, headers=headers, **context)
+        return self.parse(response, symbol=symbol, **context)
 
 
 ###################################################################
@@ -155,7 +157,7 @@ class YahooPriceSpider(YahooSpider):
         elif hasEnd: return (endDate-dt.timedelta(limit-1)), endDate, interval
         else: return startDate, (startDate+dt.timedelta(limit-1))
 
-    @YahooSpider.catch_exception
+    @YahooSpider.retry_request
     @YahooSpider.limit_request
     def fetch(self, symbol: str, startDate: Optional[dt.date]=None, endDate: Optional[dt.date]=None,
                 freq: Union[str,int]="1d", prepost=False, **context) -> Records:

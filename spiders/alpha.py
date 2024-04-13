@@ -62,14 +62,14 @@ class AlphaPriceSpider(AlphaSpider):
         date_range = pd.date_range(startDate.replace(day=1), endDate.replace(day=1), freq="MS")
         return [__m.strftime("%Y-%m") for __m in date_range]
 
-    @AlphaSpider.catch_exception
+    @AlphaSpider.retry_request
     @AlphaSpider.limit_request
     def fetch(self, symbol: str, apiKey: str, dateType: str, freq=str(), month=str(),
             adjusted=False, prepost=False, **context) -> Records:
         url = URL(API, ALPHA, "query")
         params = ALPHA_PRICE_PARAMS(symbol, apiKey, dateType, freq, month, adjusted, prepost, dataType="csv")
-        response = self.request_text(GET, **self.local_request(locals()))
-        return self.parse(**self.local_response(locals()))
+        response = self.request_text(GET, url, params=params, **context)
+        return self.parse(response, symbol=symbol, **context)
 
     @AlphaSpider.validate_response
     def parse(self, response: str, **context) -> Records:

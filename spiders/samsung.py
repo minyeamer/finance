@@ -78,13 +78,13 @@ class SamsungOrderSpider(SamsungSpider):
             __m["history"] += __data["history"]
         return __m
 
-    @SamsungSpider.catch_exception
+    @SamsungSpider.retry_request
     @SamsungSpider.limit_request
     def fetch(self, symbol: str, size=30, saveBufLen='1', saveBuf='1', **context) -> MappedData:
         url = URL(POST, SAMSUNG, "order")
-        json = SAMSUNG_ORDER_DATA(symbol, size, saveBufLen, saveBuf)
+        data = SAMSUNG_ORDER_DATA(symbol, size, saveBufLen, saveBuf)
         headers = get_headers(url, referer=URL(GET, SAMSUNG, "order"))
-        response = self.request_json(POST, **self.local_request(locals()))
+        response = self.request_json(POST, url, json=data, headers=headers, **context)
         return self.parse(response, symbol=symbol, **context)
 
     @SamsungSpider.validate_response
