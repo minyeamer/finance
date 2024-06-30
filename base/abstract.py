@@ -61,6 +61,15 @@ def SQUARE_URL(method: Literal["GET","POST","API"], uri: str, query=str(), **par
     elif method == API:
         if uri == "details": return f"https://api.alphasquare.co.kr/data/v2/stock/details?code={query}" # code
         elif uri == "prices": return f"https://api.alphasquare.co.kr/data/v3/prices/candles/{query}" # id
+        elif uri == "watchlist":
+            if query: return f"https://api.alphasquare.co.kr/watchlist/v2/watchlists/{query}/watchlist-items" # watchlistId
+            else: return "https://api.alphasquare.co.kr/watchlist/v3/watchlists-to-add-stock?stock_id=1"
+        elif uri == "upload":
+            stockType = params.get("stockType", "stock")
+            return f"https://api.alphasquare.co.kr/watchlist/v2/watchlists/{query}/{stockType}s" # watchlistId
+        elif uri == "delete":
+            stockType = "stock" if params.get("stockType") == "stock" else "watchlist-item"
+            return f"https://api.alphasquare.co.kr/watchlist/v2/watchlists/{query}/{stockType}s/{params['id']}" # watchlistId
     else: return str()
 
 

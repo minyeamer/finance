@@ -1,12 +1,17 @@
-from pipelines import AsyncPipeline, Dag, Task
+from pipelines import Pipeline, AsyncPipeline, Dag, Task
 
 from spiders.square import SquarePriceSpider
 from data.square import STOCK_PRICE_KR_INFO
 from data import KR_STOCK_PRICE_SCHEMA
 
-from gscraper.base.types import Context, IndexLabel, DateFormat, Records, MappedData
+from spiders.square import SquareWatchlistSpider, SquareWatchlistUpload, SquareWatchlistDelete
+from data.square import SQUARE_WATCHLIST_PLUS_INFO, SQUARE_WATCHLIST_CLEAR_INFO
 
-from typing import Dict, List, Optional
+from gscraper.base.types import _KT, _VT, Arguments, Context, IndexLabel, Keyword, DateFormat
+from gscraper.base.types import Records, Data, MappedData
+from gscraper.utils.map import kloc
+
+from typing import Dict, List, Optional, Tuple, Union
 
 
 ###################################################################
@@ -77,3 +82,98 @@ class StockPriceKrPipeline(AsyncPipeline):
     def get_upload_columns(self, name=str(), **context) -> IndexLabel:
         dateType = "date" if name.endswith("1d") else "datetime"
         return KR_STOCK_PRICE_SCHEMA(dateType).get("name")
+
+
+###################################################################
+###################### Alpha Square Watchlist #####################
+###################################################################
+
+class SquareWatchlistPipeline(Pipeline):
+    operation = "squareWatchlistPlus"
+    returnType = None
+    mappedReturn = True
+    info = SQUARE_WATCHLIST_PLUS_INFO()
+    dags = Dag(
+        Task(operator=SquareWatchlistSpider, task="request_crawl", dataName="watchlist", dataType="records", params=["cookies"]),
+        Task(operator=SquareWatchlistSpider, task="crawl_items", dataName="items", dataType=None, derivData=["watchlist"],
+            params=["cookies"], updateTime=False),
+    )
+
+    @Pipeline.init_task
+    def crawl(self, cookies: str, key: _KT=str(), **context) -> Union[Data,MappedData]:
+        return self.gather(cookies=cookies, key=key, **context)
+
+    @Pipeline.validate_data
+    @Pipeline.limit_request
+    def crawl_items(self, worker: SquareWatchlistSpider, watchlist: Records, **params) -> Dict[str,Records]:
+        return {__watchlist["id"]: worker.crawl(id=__watchlist["id"], **params) for __watchlist in watchlist}
+
+    @Pipeline.arrange_data
+    def map_reduce(self, watchlist: Records, items: Dict[str,Records], key: _KT=str(), **context) -> Union[Data,MappedData]:
+        def make_key(__m: Dict, key: _KT) -> Union[_VT,Tuple[_VT]]:
+            __values = kloc(__m, key, if_null="pass", values_only=True)
+            return tuple(__values) if isinstance(__values, List) else __values
+        data = [dict(__watchlist, items=items.get(__watchlist["id"], list())) for __watchlist in watchlist]
+        return {make_key(__watchlist, key): __watchlist["items"] for __watchlist in data} if key else data
+
+
+class SquareWatchlistBulkUpload(Pipeline):
+    operation = "squareWatchlistBulkUpload"
+    returnType = "records"
+    mappedReturn = True
+    info = SQUARE_WATCHLIST_CLEAR_INFO()
+    dags = Dag(
+        Task(operator=SquareWatchlistPipeline, task="request_crawl", dataName="watchlist", dataType=None,
+            params=["cookies"], key=["name","id"]),
+        Task(operator=SquareWatchlistUpload, task="upload_items", dataName="response", dataType=None,
+            derivData=["watchlist"], params=["query","cookies"]),
+    )
+
+    @Pipeline.init_task
+    def crawl(self, query: Dict[str,Keyword], cookies: str, **context) -> MappedData:
+        return self.gather(**self.validate_context(locals()))
+
+    @Pipeline.validate_data
+    @Pipeline.limit_request
+    def upload_items(self, worker: SquareWatchlistDelete, query: Dict[str,Keyword],
+                    watchlist: Dict[Tuple[str,str],Records], **params) -> Dict[str,Records]:
+        id, idmap = [x[0] for x in watchlist.keys()], dict(watchlist.keys())
+        def validate_args(values: Keyword) -> Arguments:
+            return values, [("stock" if str(value).isdigit() else "splitter") for value in values]
+        return {idmap.get(key,key): worker.crawl(*validate_args(values), watchlistId=idmap.get(key,key), **params)
+                for key, values in query.items() if key in id or key in idmap}
+
+    @Pipeline.arrange_data
+    def map_reduce(self, response: Dict[str,Records], **context) -> MappedData:
+        return response
+
+
+class SquareWatchlistClear(Pipeline):
+    operation = "squareWatchlistClear"
+    returnType = "records"
+    mappedReturn = True
+    info = SQUARE_WATCHLIST_CLEAR_INFO()
+    dags = Dag(
+        Task(operator=SquareWatchlistPipeline, task="request_crawl", dataName="watchlist", dataType=None,
+            params=["cookies"], key=["id","name"]),
+        Task(operator=SquareWatchlistDelete, task="clear_items", dataName="response", dataType=None,
+            derivData=["watchlist"], params=["query","cookies"]),
+    )
+
+    @Pipeline.init_task
+    def crawl(self, query: Keyword, cookies: str, **context) -> MappedData:
+        return self.gather(**self.validate_context(locals()))
+
+    @Pipeline.validate_data
+    @Pipeline.limit_request
+    def clear_items(self, worker: SquareWatchlistDelete, query: Keyword,
+                    watchlist: Dict[Tuple[str,str],Records], **params) -> Dict[str,Records]:
+        def validate_args(items: Records) -> Arguments:
+            id = [(item["id"] if item["stockType"] == "stock" else item["itemId"]) for item in items]
+            return id, [item["stockType"] for item in items]
+        return {id: worker.crawl(*validate_args(items), watchlistId=id, **params)
+                for (id, name), items in watchlist.items() if (id in query) or (name in query)}
+
+    @Pipeline.arrange_data
+    def map_reduce(self, response: Dict[str,Records], **context) -> MappedData:
+        return response

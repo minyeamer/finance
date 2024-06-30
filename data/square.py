@@ -1,13 +1,16 @@
 from data import Info, Query, Variable, Schema, Field, Match
 from data import PipelineInfo, PipelineQuery, PipelineSchema, PipelineField
 
+from typing import Dict
+import datetime as dt
+
 
 ###################################################################
 ####################### Alpha Square Detail #######################
 ###################################################################
 
 SQUARE_DETAIL_SCHEMA = lambda: Schema(
-    Field(name="id", type="STRING", desc="ID", mode="REQUIRED", path=["id"]),
+    Field(name="id", type="STRING", desc="ID", mode="NOTZERO", path=["id"]),
     Field(name="code", type="STRING", desc="종목코드", mode="QUERY", path=["code"]),
     Field(name="isin", type="STRING", desc="12자리코드", mode="NULLABLE", path=["isin"]),
     Field(name="logo", type="STRING", desc="로고", mode="NULLABLE", path=["logo"]),
@@ -102,4 +105,119 @@ STOCK_PRICE_KR_INFO = lambda: PipelineInfo(
     query = STOCK_PRICE_KR_QUERY(),
     id = SQUARE_PRICE_ID_SCHEMA(),
     price = SQUARE_PRICE_KR_VALUE_SCHEMA(),
+)
+
+
+###################################################################
+###################### Alpha Square Watchlist #####################
+###################################################################
+
+def _drop_ms(__date_string: str) -> str:
+    return __date_string.split('.')[0]
+
+def _get_item_id(item: Dict) -> int:
+    info = item.get(item.get("type"))
+    return info.get("id") if isinstance(info, Dict) else None
+
+def _get_item_name(item: Dict) -> int:
+    info = item.get(item.get("type"))
+    key = "ko_name" if item.get("type") == "stock" else "name"
+    return info.get(key) if isinstance(info, Dict) else None
+
+
+SQUARE_WATCHLIST_PLUS_QUERY = lambda: PipelineQuery(
+    Variable(name="cookies", type="STRING", desc="쿠키", iterable=False),
+    Variable(name="key", type="STRING", desc="키", iterable=False, default=str()),
+)
+
+SQUARE_WATCHLIST_UPLOAD_QUERY = lambda: Query(
+    Variable(name="value", type="STRING", desc="값", iterable=True),
+    Variable(name="stockType", type="STRING", desc="종목종류", iterable=True),
+    Variable(name="watchlistId", type="STRING", desc="관심목록ID", iterable=False),
+    Variable(name="cookies", type="STRING", desc="쿠키", iterable=False),
+)
+
+SQUARE_WATCHLIST_BULK_UPLOAD_QUERY = lambda: Query(
+    Variable(name="query", type="DICT", desc="쿼리", iterable=False),
+    Variable(name="cookies", type="STRING", desc="쿠키", iterable=False),
+)
+
+SQUARE_WATCHLIST_DELETE_QUERY = lambda: Query(
+    Variable(name="id", type="STRING", desc="ID", iterable=True),
+    Variable(name="stockType", type="STRING", desc="종목종류", iterable=True),
+    Variable(name="watchlistId", type="STRING", desc="관심목록ID", iterable=False),
+    Variable(name="cookies", type="STRING", desc="쿠키", iterable=False),
+)
+
+SQUARE_WATCHLIST_CLEAR_QUERY = lambda: Query(
+    Variable(name="query", type="STRING", desc="쿼리", iterable=True),
+    Variable(name="cookies", type="STRING", desc="쿠키", iterable=False),
+)
+
+
+SQUARE_WATCHLIST_SCHEMA = lambda: Schema(
+    Field(name="id", type="STRING", desc="ID", mode="NOTZERO", path=["id"]),
+    Field(name="order", type="INTEGER", desc="순번", mode="NULLABLE", path=["order"]),
+    Field(name="name", type="STRING", desc="이름", mode="NULLABLE", path=["name"]),
+    Field(name="ownerId", type="STRING", desc="소유자ID", mode="NULLABLE", path=["owner_id"], cast=True),
+    Field(name="createTime", type="DATETIME", desc="생성일시", mode="NULLABLE", path=["created_at"], apply=_drop_ms),
+    Field(name="modifyTime", type="DATETIME", desc="수정일시", mode="NULLABLE", path=["updated_at"], apply=_drop_ms),
+    Field(name="stockCount", type="INTEGER", desc="종목수", mode="NULLABLE", path=["stock_count"]),
+)
+
+SQUARE_WATCHLIST_ITEM_SCHEMA = lambda: Schema(
+    Field(name="itemId", type="STRING", desc="관심종목ID", mode="NOTZERO", path=["id"]),
+    Field(name="watchlistId", type="STRING", desc="관심목록ID", mode="QUERY", path=["id"]),
+    Field(name="order", type="INTEGER", desc="순번", mode="NULLABLE", path=["order"]),
+    Field(name="stockType", type="STRING", desc="종목종류", mode="NULLABLE", path=["type"]),
+    Field(name="id", type="STRING", desc="ID", mode="NOTZERO", path=_get_item_id),
+    Field(name="code", type="STRING", desc="종목코드", mode="OPTIONAL", path=["stock","code"], cast=True),
+    Field(name="name", type="STRING", desc="종목코드", mode="NOTZERO", path=_get_item_name),
+    Field(name="createTime", type="DATETIME", desc="생성일시", mode="NULLABLE", path=["created_at"], apply=_drop_ms),
+    Field(name="modifyTime", type="DATETIME", desc="수정일시", mode="NULLABLE", path=["updated_at"], apply=_drop_ms),
+)
+
+SQUARE_WATCHLIST_UPLOAD_SCHEMA = lambda: Schema(
+    Field(name="value", type="STRING", desc="값", mode="QUERY", path=["value"]),
+    Field(name="stockType", type="STRING", desc="종목종류", mode="QUERY", path=["stockType"]),
+    Field(name="status", type="INTEGER", desc="응답상태", mode="NULLABLE", path=["status"]),
+)
+
+SQUARE_WATCHLIST_DELETE_SCHEMA = lambda: Schema(
+    Field(name="id", type="STRING", desc="값", mode="QUERY", path=["id"]),
+    Field(name="stockType", type="STRING", desc="종목종류", mode="QUERY", path=["stockType"]),
+    Field(name="message", type="STRING", desc="응답상태", mode="NULLABLE", path=["message"]),
+)
+
+
+SQUARE_WATCHLIST_INFO = lambda: Info(
+    query = Query(Variable(name="cookies", type="STRING", desc="쿠키", iterable=False)),
+    watchlist = SQUARE_WATCHLIST_SCHEMA(),
+    item = SQUARE_WATCHLIST_ITEM_SCHEMA(),
+)
+
+SQUARE_WATCHLIST_PLUS_INFO = lambda: PipelineInfo(
+    query = SQUARE_WATCHLIST_PLUS_QUERY(),
+    watchlist = SQUARE_WATCHLIST_SCHEMA(),
+    item = SQUARE_WATCHLIST_ITEM_SCHEMA(),
+)
+
+SQUARE_WATCHLIST_UPLOAD_INFO = lambda: Info(
+    query = SQUARE_WATCHLIST_UPLOAD_QUERY(),
+    upload = SQUARE_WATCHLIST_UPLOAD_SCHEMA(),
+)
+
+SQUARE_WATCHLIST_BULK_UPLOAD_INFO = lambda: PipelineInfo(
+    query = SQUARE_WATCHLIST_BULK_UPLOAD_QUERY(),
+    upload = SQUARE_WATCHLIST_UPLOAD_SCHEMA(),
+)
+
+SQUARE_WATCHLIST_DELETE_INFO = lambda: Info(
+    query = SQUARE_WATCHLIST_DELETE_QUERY(),
+    delete = SQUARE_WATCHLIST_DELETE_SCHEMA(),
+)
+
+SQUARE_WATCHLIST_CLEAR_INFO = lambda: PipelineInfo(
+    query = SQUARE_WATCHLIST_CLEAR_QUERY(),
+    delete = SQUARE_WATCHLIST_DELETE_SCHEMA(),
 )
