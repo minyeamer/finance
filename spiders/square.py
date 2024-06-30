@@ -34,7 +34,6 @@ class SquareDetailSpider(SquareAsyncSpider):
     iterateUnit = 1
     responseType = "dict"
     returnType = "records"
-    root = ["code"]
     info = SQUARE_DETAIL_INFO()
     flow = Flow("detail")
 
@@ -45,7 +44,7 @@ class SquareDetailSpider(SquareAsyncSpider):
         headers = get_headers(url, referer=URL(GET, SQUARE, "main"), origin=True)
         headers["X-Csrftoken"] = self.token
         response = await self.request_json(GET, url, headers=headers, **context)
-        return self.parse(response, code=code, **context)
+        return self.parse(response[code], code=code, **context)
 
 
 ###################################################################
