@@ -318,6 +318,7 @@ YAHOO_PRICE_QUERY = lambda: Query(
     Variable(name="symbol", type="STRING", desc="티커", iterable=True),
     Variable(name="startDate", type="DATE", desc="시작일자", iterable=False, default=None),
     Variable(name="endDate", type="DATE", desc="종료일자", iterable=False, default=None),
+    Variable(name="period", type="STRING", desc="기간", iterable=False, default=None),
     Variable(name="freq", type="STRING", desc="주기", iterable=False, default="1d"),
     Variable(name="prepost", type="BOOLEAN", desc="Pre/Post", iterable=False, default=False),
     Variable(name="trunc", type="INTEGER", desc="반올림위치", iterable=False, default=2),

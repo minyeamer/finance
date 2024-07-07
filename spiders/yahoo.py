@@ -9,7 +9,7 @@ from data import US_STOCK_PRICE_SCHEMA
 from data.yahoo import YAHOO_PRICE_INFO, YAHOO_DATE_LIMIT
 
 from gscraper.base.types import IndexLabel, Keyword, DateFormat, Records, Data
-from gscraper.utils.map import inter
+from gscraper.utils.map import inter, endswith
 
 from typing import Dict, Optional, Tuple, Union
 from abc import ABCMeta
@@ -19,7 +19,10 @@ import yfinance
 
 
 def fmt(symbol: str) -> str:
-    return symbol.replace('.','-') if isinstance(symbol, str) else str()
+    if isinstance(symbol, str):
+        if endswith(symbol, [".KS", ".KQ"]): return symbol
+        else: return symbol.replace('.','-')
+    else: return str()
 
 
 def get_yahoo_headers(url: str, symbol=str(), referer=str(), **kwargs) -> Dict[str,str]:
@@ -140,38 +143,47 @@ class YahooPriceSpider(YahooSpider):
 
     @YahooSpider.init_task
     def crawl(self, symbol: Symbol, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
-                freq: Union[str,int]="1d", prepost=False, trunc: Optional[int]=2, **context) -> Data:
-        startDate, endDate, interval = self.set_date(startDate, endDate, freq)
+            period: Optional[str]=None, freq: Union[str,int]="1d", prepost=False, trunc: Optional[int]=2, **context) -> Data:
+        if period is None:
+            startDate, endDate, interval = self.set_date(startDate, endDate, freq)
         args, context = self.validate_params(locals())
         return self.gather(*args, **context)
 
     def set_date(self, startDate: Optional[DateFormat]=None, endDate: Optional[DateFormat]=None,
-                freq: Union[str,int]="1d") -> Tuple[dt.date,dt.date,str]:
+                period: Optional[str]=None, freq: Union[str,int]="1d") -> Tuple[dt.date,dt.date,str]:
         startDate, endDate = self.get_date_pair(startDate, endDate)
         today, limit = self.today(), YAHOO_DATE_LIMIT[freq]
-        interval = "7D" if freq == "1m" else str()
-        if not limit: return startDate, endDate, interval
         hasEnd, endDate = bool(endDate), (endDate if endDate else today)
-        if not startDate: return (endDate-dt.timedelta(limit-1)), endDate, interval
-        elif (today-startDate).days < limit: return startDate, endDate, interval
-        elif hasEnd: return (endDate-dt.timedelta(limit-1)), endDate, interval
-        else: return startDate, (startDate+dt.timedelta(limit-1))
+        if freq != "1m": return startDate, endDate, str()
+        elif not startDate: return (endDate-dt.timedelta(limit-1)), endDate, "7D"
+        elif (today-startDate).days < limit: return startDate, endDate, "7D"
+        elif hasEnd: return (endDate-dt.timedelta(limit-1)), endDate, "7D"
+        else: return startDate, (startDate+dt.timedelta(limit-1)), "7D"
 
     @YahooSpider.retry_request
     @YahooSpider.limit_request
     def fetch(self, symbol: str, startDate: Optional[dt.date]=None, endDate: Optional[dt.date]=None,
-                freq: Union[str,int]="1d", prepost=False, **context) -> Records:
-        response = yfinance.download(symbol, startDate, endDate, interval=freq, prepost=prepost, progress=False)
+            period: Optional[str]=None, freq: Union[str,int]="1d", prepost=False, **context) -> Records:
+        response = yfinance.download(fmt(symbol), startDate, endDate, period=period, interval=freq, prepost=prepost, progress=False)
         return self.parse(response, symbol=symbol, **context)
 
     @YahooSpider.validate_response
     def parse(self, response: pd.DataFrame, **context) -> Records:
-        return self.map(response.reset_index().to_dict("records"), **context)
+        return self.map(response[::-1].reset_index().to_dict("records"), **context)[::-1]
 
     def is_valid_response(self, response: pd.DataFrame) -> bool:
         if response.empty: raise ValueError("Failed download")
         else: return True
 
     def get_upload_columns(self, interval="1d", name=str(), **context) -> IndexLabel:
-        dateType = "datetime" if YAHOO_DATE_LIMIT.get(interval) else "date"
-        return US_STOCK_PRICE_SCHEMA(dateType).get("name")
+        if name == "sheet":
+            dateType = "datetime" if YAHOO_DATE_LIMIT.get(interval) else "date"
+            return US_STOCK_PRICE_SCHEMA(dateType).get("name")
+        elif name == "ohlc": return ["symbol", "open", "high", "low", "close", "date"]
+        elif name == "close": return ["date", "symbol", "close"]
+        else: return list()
+
+    def map_upload_data(self, data: pd.DataFrame, name=str(), **context) -> pd.DataFrame:
+        if name == "ohlc":
+            return data[data["date"]==data["date"].max()]
+        else: return data
